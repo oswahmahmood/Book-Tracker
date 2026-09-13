@@ -34,15 +34,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   if (isCover(url)) {
-    event.respondWith(
-      caches.open(COVERS).then(async (cache) => {
-        const hit = await cache.match(request);
-        if (hit) return hit;
-        const res = await fetch(request);
-        if (res.ok || res.type === 'opaque') cache.put(request, res.clone());
-        return res;
-      }).catch(() => Response.error()),
-    );
+    event.respondWith((async () => {
+      const cache = await caches.open(COVERS);
+      const hit = await cache.match(request);
+      if (hit) return hit;
+      const res = await fetch(request);
+      // Cover images are fetched no-cors, so the response is opaque and some
+      // browsers refuse to store it. Failing to cache must never fail the image.
+      try {
+        await cache.put(request, res.clone());
+      } catch (err) { /* not cacheable — serve it from the network each time */ }
+      return res;
+    })());
     return;
   }
 

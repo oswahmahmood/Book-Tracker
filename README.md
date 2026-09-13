@@ -36,8 +36,21 @@ No toolchain needed, but it does need to be served over http (service workers
 don't run from `file://`):
 
 ```sh
-npx http-server -p 8099 -c-1 .   # then open http://localhost:8099
+npm start   # then open http://localhost:8099
 ```
+
+## Tests
+
+```sh
+npm install
+npm test
+```
+
+Thirteen end-to-end checks run in a headless iPhone-sized browser: adding by
+ISBN, the check-digit guard, duplicates, title search, both ways of reordering,
+order surviving a reload, shelf moves, the cover fallback chain, the offline
+error message, export/restore, and the whole app loading with the network cut.
+The book APIs are stubbed, so the suite is deterministic and needs no network.
 
 ## Where the data comes from
 
@@ -49,6 +62,12 @@ npx http-server -p 8099 -c-1 .   # then open http://localhost:8099
 Both are free and need no key at this volume. If an ISBN turns up nothing in
 either, search by title instead — typing anything that isn't a valid ISBN runs
 a title search and lets you pick from the results.
+
+Cover art is treated separately from the metadata, because a book often has one
+without the other: the app checks that the cover image really loads, and if it
+doesn't, borrows the other source's thumbnail. A book added while you're offline
+keeps its unverified cover URL and is retried the next time you open the app, so
+it fills itself in rather than staying blank for good.
 
 ISBNs are checked for a valid check digit before any lookup, so a mistyped
 digit is caught immediately rather than coming back as "not found".
@@ -75,6 +94,7 @@ reads it back and skips anything already on the list.
 | `sw.js` | Service worker — caches the app shell and cover images for offline use |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
 | `tools/make-icons.py` | Regenerates `icons/` — no image libraries needed |
+| `tests/run.mjs` | The end-to-end suite |
 
 ## If you want a real native app
 

@@ -1,0 +1,12 @@
+{
+  "name": "reading-list",
+  "private": true,
+  "description": "A personal to-read list, ordered the way you want to read it.",
+  "scripts": {
+    "start": "npx --yes http-server -p 8099 -c-1 .",
+    "test": "node tests/run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

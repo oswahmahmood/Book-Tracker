@@ -119,6 +119,57 @@
     };
   }
 
+  /* Open Library records sometimes carry metadata but no cover art, and its
+     cover server 404s rather than saying so up front — so confirm the image
+     really loads, and borrow Google's thumbnail when it doesn't. */
+  function imageLoads(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const done = (ok) => { img.onload = img.onerror = null; resolve(ok); };
+      img.onload = () => done(img.naturalWidth > 1);
+      img.onerror = () => done(false);
+      img.src = url;
+      setTimeout(() => done(false), 8000);
+    });
+  }
+
+  /* `reached` says whether we actually heard back — "this book has no cover"
+     and "we couldn't ask" need to be told apart, so only the first is final. */
+  async function googleCoverFor(isbn) {
+    if (!isbn) return { cover: '', reached: false };
+    try {
+      const data = await getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      return { cover: googleCover(data?.items?.[0]?.volumeInfo?.imageLinks), reached: true };
+    } catch (err) {
+      return { cover: '', reached: false };
+    }
+  }
+
+  /* Runs after the book is already on the list, so a slow or missing cover
+     never holds up the add. */
+  function attachCover(book) {
+    withCover(book).then((resolved) => {
+      if (!byId(book.id)) return;
+      const changed = resolved.cover !== book.cover;
+      book.cover = resolved.cover;
+      book.coverChecked = resolved.checked;
+      save();
+      if (changed) render();
+    });
+  }
+
+  async function withCover(info) {
+    if (info.cover && await imageLoads(info.cover)) return { cover: info.cover, checked: true };
+    if (info.source === 'Google Books') {
+      return { cover: navigator.onLine ? '' : info.cover, checked: navigator.onLine };
+    }
+    const { cover: alt, reached } = await googleCoverFor(info.isbn);
+    if (alt && await imageLoads(alt)) return { cover: alt, checked: true };
+    // Keep an unverified URL rather than dropping it: if we simply couldn't
+    // reach the servers, it is still the best candidate to retry next time.
+    return { cover: reached ? '' : info.cover, checked: reached };
+  }
+
   /* Look an ISBN up. Open Library first (open data, good covers), Google Books
      as a fallback — between them the hit rate is high. */
   async function lookupIsbn(isbn) {
@@ -350,7 +401,11 @@
           setStatus(addStatus, 'No record found for that ISBN. Try searching by title instead.', true);
           return;
         }
-        if (addBook(info)) queryInput.value = '';
+        const added = addBook(info);
+        if (added) {
+          queryInput.value = '';
+          attachCover(added);
+        }
       } else {
         setStatus(addStatus, 'Searching…');
         const results = await searchTitle(raw);
@@ -397,10 +452,11 @@
 
       btn.append(img, meta, add);
       btn.addEventListener('click', () => {
-        if (addBook(info)) {
-          queryInput.value = '';
-          hideResults();
-        }
+        const added = addBook(info);
+        if (!added) return;
+        queryInput.value = '';
+        hideResults();
+        attachCover(added);
       });
       li.append(btn);
       resultsList.append(li);
@@ -595,6 +651,12 @@
 
   syncShelfButtons();
   render();
+
+  /* Books added while offline have no cover art yet — try again now, a few at
+     a time so a long list doesn't fire off dozens of requests at once. */
+  if (navigator.onLine) {
+    books.filter((b) => !b.coverChecked && b.isbn).slice(0, 5).forEach(attachCover);
+  }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => {
