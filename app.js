@@ -191,6 +191,7 @@
 
   async function searchTitle(query) {
     const q = encodeURIComponent(query);
+    let openLibraryFailed = false;
     try {
       const data = await getJSON(`https://openlibrary.org/search.json?q=${q}&limit=8&fields=title,subtitle,author_name,first_publish_year,number_of_pages_median,isbn,cover_i,publisher`);
       const docs = data?.docs || [];
@@ -207,10 +208,17 @@
           source: 'Open Library',
         }));
       }
-    } catch (err) { /* fall through to Google */ }
+    } catch (err) {
+      openLibraryFailed = true;  // fall through to Google
+    }
 
-    const data = await getJSON(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=8`);
-    return (data?.items || []).map((item) => fromGoogle(item, ''));
+    try {
+      const data = await getJSON(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=8`);
+      return (data?.items || []).map((item) => fromGoogle(item, ''));
+    } catch (err) {
+      // Neither service answered — say so plainly rather than blaming the search.
+      throw new Error(openLibraryFailed ? 'offline' : 'search-failed');
+    }
   }
 
   /* ----------------------------------------------------------------- list */

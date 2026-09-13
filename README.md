@@ -30,6 +30,12 @@ the other route.
 
 Anything pushed to `main` afterwards updates the app the next time you open it.
 
+No prompts, banners or permission requests come with any of this: the app asks
+for nothing — no notifications, no camera, no location — and iOS has no install
+pop-up to dismiss. The only two dialogs in the whole app are ones you summon
+yourself: a confirmation when you remove a book, and the iOS share sheet when
+you export a backup.
+
 ## Running it locally
 
 No toolchain needed, but it does need to be served over http (service workers
@@ -46,11 +52,30 @@ npm install
 npm test
 ```
 
-Thirteen end-to-end checks run in a headless iPhone-sized browser: adding by
+Sixteen end-to-end checks run in a headless iPhone-sized browser: adding by
 ISBN, the check-digit guard, duplicates, title search, both ways of reordering,
 order surviving a reload, shelf moves, the cover fallback chain, the offline
-error message, export/restore, and the whole app loading with the network cut.
-The book APIs are stubbed, so the suite is deterministic and needs no network.
+error messages, export/restore, and the whole app loading with the network cut.
+One of them builds a real four-book queue — *The Good Immigrant*, *The Inner
+Game of Tennis*, *Mind the Gap* and *The Authority Gap* — reorders it and
+checks it holds. The book APIs are stubbed, so the suite is deterministic and
+needs no network.
+
+There is also a live check, kept out of `npm test` because it depends on the
+outside world:
+
+```sh
+npm run smoke
+```
+
+It looks those same four books up against the real Open Library and Google
+Books, adds each one, and prints what came back — author, year, the ISBN the
+service holds, and whether the cover image actually rendered. Worth running
+once after any change to the lookup code.
+
+Note that a search like "mind the gap" is ambiguous (there are several books by
+that name), so the app searches on whatever you type — adding the author, or
+using the ISBN, is the way to land on the right edition.
 
 ## Where the data comes from
 
@@ -95,6 +120,7 @@ reads it back and skips anything already on the list.
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
 | `tools/make-icons.py` | Regenerates `icons/` — no image libraries needed |
 | `tests/run.mjs` | The end-to-end suite |
+| `tests/smoke.mjs` | The live check against the real book services |
 
 ## If you want a real native app
 

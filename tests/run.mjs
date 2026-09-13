@@ -4,22 +4,17 @@
  *
  * The book APIs are stubbed so the suite is deterministic and works offline;
  * what is being tested is this app's own behaviour around them. */
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, normalize } from 'node:path';
 import assert from 'node:assert/strict';
+import { serve } from './static-server.mjs';
+
 
 // Lets Playwright's route stubs reach fetches made by the service worker, which
 // the offline check depends on. Must be set before Playwright is loaded.
 process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS = '1';
 const { chromium, devices } = await import('playwright');
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = 8123;
 const BASE = `http://127.0.0.1:${PORT}/`;
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.json': 'application/json' };
 
 // A real 24x24 PNG, stood in for cover art.
 const COVER_PNG = Buffer.from(
@@ -32,29 +27,34 @@ const olRecord = (cover) => ({ [`ISBN:${ISBN}`]: {
   publish_date: 'Sep 15, 2020', number_of_pages: 245,
   ...(cover ? { cover: { large: 'https://covers.openlibrary.org/b/id/9-L.jpg' } } : {}) } });
 
-const SEARCH_DOCS = { docs: [
+/* The catalogue the stubbed search runs against. The four at the top are real
+ * books used as a lifelike fixture; no ISBNs are written down for them, because
+ * the real ones come back from the services themselves — tests/smoke.mjs asks
+ * the live APIs for those. */
+const CATALOGUE = [
+  { title: 'The Good Immigrant', author_name: ['Nikesh Shukla'], first_publish_year: 2016, cover_i: 11 },
+  { title: 'The Inner Game of Tennis', author_name: ['W. Timothy Gallwey'], first_publish_year: 1974, cover_i: 12 },
+  { title: 'Mind the Gap', subtitle: 'The truth about desire and how to futureproof your sex life',
+    author_name: ['Karen Gurney'], first_publish_year: 2020, cover_i: 13 },
+  { title: 'The Authority Gap', subtitle: 'Why women are still taken less seriously than men',
+    author_name: ['Mary Ann Sieghart'], first_publish_year: 2021, cover_i: 14 },
   { title: 'Wolf Hall', author_name: ['Hilary Mantel'], first_publish_year: 2009, isbn: ['9780007230181'], cover_i: 2 },
   { title: 'Bring Up the Bodies', author_name: ['Hilary Mantel'], first_publish_year: 2012, isbn: ['9780007315093'], cover_i: 3 },
-] };
+];
+
+/* Stands in for Open Library's search: every word of the query has to appear
+   somewhere in the title, subtitle or author. */
+function searchCatalogue(url) {
+  const q = (new URL(url).searchParams.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const docs = CATALOGUE.filter((d) => {
+    const hay = `${d.title} ${d.subtitle || ''} ${d.author_name.join(' ')}`.toLowerCase();
+    return q.every((word) => hay.includes(word));
+  });
+  return { docs };
+}
 
 const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 const image = () => ({ status: 200, contentType: 'image/png', body: COVER_PNG });
-
-function serve() {
-  const server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^(\.\.[/\\])+/, '');
-    const file = join(ROOT, path === '/' ? 'index.html' : path);
-    try {
-      const body = await readFile(file);
-      const ext = file.slice(file.lastIndexOf('.'));
-      res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-      res.end(body);
-    } catch {
-      res.writeHead(404).end('not found');
-    }
-  });
-  return new Promise((resolve) => server.listen(PORT, '127.0.0.1', () => resolve(server)));
-}
 
 const results = [];
 async function check(name, fn) {
@@ -69,13 +69,13 @@ async function check(name, fn) {
 
 const titles = (page) => page.locator('.book .title').allTextContents();
 
-const server = await serve();
+const server = await serve(PORT);
 const browser = await chromium.launch();
 
 async function newPage({ serviceWorkers = 'block', routes = {} } = {}) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers });
   await ctx.route(/openlibrary\.org\/api\/books/, (r) => r.fulfill(json(routes.ol ?? olRecord(true))));
-  await ctx.route(/openlibrary\.org\/search\.json/, (r) => r.fulfill(json(SEARCH_DOCS)));
+  await ctx.route(/openlibrary\.org\/search\.json/, (r) => r.fulfill(json(searchCatalogue(r.request().url()))));
   await ctx.route(/covers\.openlibrary\.org\//, (r) => (routes.covers === false ? r.abort() : r.fulfill(image())));
   await ctx.route(/googleapis\.com\//, (r) => (routes.google === false ? r.abort() : r.fulfill(json(routes.google ?? { items: [] }))));
   await ctx.route(/books\.google\.com\//, (r) => r.fulfill(image()));
@@ -125,7 +125,7 @@ await check('refuses to add the same book twice', async () => {
 
 await check('searches by title and adds the chosen result', async () => {
   const { ctx, page } = await newPage();
-  await page.fill('#query', 'wolf hall');
+  await page.fill('#query', 'hilary mantel');
   await page.click('#add-btn');
   await page.waitForSelector('#results:not([hidden]) .result');
   assert.equal(await page.locator('#results .result').count(), 2);
@@ -223,11 +223,81 @@ await check('retries the cover on a later visit if the servers were unreachable'
   await ctx.close();
 });
 
+await check('builds a four-book list and holds the order it is put in', async () => {
+  const { ctx, page, errors } = await newPage();
+
+  const wanted = [
+    ['the good immigrant', 'The Good Immigrant'],
+    ['inner game of tennis', 'The Inner Game of Tennis'],
+    ['mind the gap gurney', 'Mind the Gap'],
+    ['the authority gap', 'The Authority Gap'],
+  ];
+
+  for (const [query, title] of wanted) {
+    await page.fill('#query', query);
+    await page.click('#add-btn');
+    await page.waitForSelector('#results:not([hidden]) .result');
+    await page.locator('#results .result').first().click();
+    await page.waitForFunction((t) => [...document.querySelectorAll('.book .title')].some((el) => el.textContent === t), title);
+  }
+
+  assert.deepEqual(await titles(page), wanted.map(([, t]) => t), 'new books land at the bottom of the queue');
+  assert.equal(await page.textContent('[data-count="toread"]'), '4');
+  assert.equal(await page.locator('.book').nth(3).locator('.author').textContent(), 'Mary Ann Sieghart');
+
+  // Read The Authority Gap first, then Mind the Gap.
+  await page.locator('.book').nth(3).locator('.open').click();
+  await page.click('#book-dialog .stack button.ghost');       // move to the top of this shelf
+  await page.locator('.book').nth(3).locator('.up').click();
+  assert.deepEqual(await titles(page), [
+    'The Authority Gap', 'The Good Immigrant', 'Mind the Gap', 'The Inner Game of Tennis',
+  ]);
+
+  // Start the one at the top; the rest keep their order behind it.
+  await page.locator('.book').first().locator('.open').click();
+  await page.selectOption('#book-dialog select', 'reading');
+  await page.click('#book-dialog button[type="submit"]');
+
+  await page.reload();
+  await page.waitForSelector('.book');
+  assert.deepEqual(await titles(page), ['The Good Immigrant', 'Mind the Gap', 'The Inner Game of Tennis']);
+  await page.click('.shelf[data-shelf="reading"]');
+  assert.deepEqual(await titles(page), ['The Authority Gap']);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check('keeps a subtitle out of the title but shows the author', async () => {
+  const { ctx, page } = await newPage();
+  await page.fill('#query', 'mind the gap gurney');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  await page.locator('#results .result').first().click();
+  await page.waitForSelector('.book');
+  assert.equal(await page.locator('.book .title').textContent(), 'Mind the Gap');
+  assert.equal(await page.locator('.book .author').textContent(), 'Karen Gurney');
+  await page.locator('.book').first().locator('.open').click();
+  const sheet = await page.locator('#dialog-body').textContent();
+  assert.match(sheet, /The truth about desire/, 'the subtitle belongs in the detail sheet');
+  await ctx.close();
+});
+
 await check('says something human when the lookup services are unreachable', async () => {
   const { ctx, page } = await newPage({ routes: { google: false } });
   await page.unroute(/openlibrary\.org\/api\/books/);
   await page.route(/openlibrary\.org\/api\/books/, (r) => r.abort());
   await addIsbn(page);
+  await page.waitForSelector('#add-status.error');
+  assert.match(await page.textContent('#add-status'), /offline/);
+  await ctx.close();
+});
+
+await check('gives the same offline message when a title search cannot reach anything', async () => {
+  const { ctx, page } = await newPage({ routes: { google: false } });
+  await page.unroute(/openlibrary\.org\/search\.json/);
+  await page.route(/openlibrary\.org\/search\.json/, (r) => r.abort());
+  await page.fill('#query', 'the good immigrant');
+  await page.click('#add-btn');
   await page.waitForSelector('#add-status.error');
   assert.match(await page.textContent('#add-status'), /offline/);
   await ctx.close();
