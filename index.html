@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reading List</title>
+<meta name="description" content="A personal to-read list. Add books by ISBN, drag them into the order you want to read them.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f4ee" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reading List">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Reading list</h1>
+  <div class="topbar-actions">
+    <button type="button" id="backup-btn" class="ghost" aria-haspopup="dialog">Backup</button>
+  </div>
+</header>
+
+<main>
+  <form id="add-form" autocomplete="off">
+    <label class="visually-hidden" for="query">ISBN or title</label>
+    <div class="add-row">
+      <input id="query" name="query" type="search" inputmode="search"
+             placeholder="ISBN, or a title to search" enterkeyhint="search" required>
+      <button type="submit" id="add-btn">Add</button>
+    </div>
+    <p id="add-status" class="status" role="status" aria-live="polite"></p>
+  </form>
+
+  <section id="results" class="results" hidden aria-label="Search results">
+    <div class="results-head">
+      <h2>Pick one</h2>
+      <button type="button" class="ghost" id="results-close">Cancel</button>
+    </div>
+    <ul id="results-list" class="results-list"></ul>
+  </section>
+
+  <nav class="shelves" id="shelves" aria-label="Shelves">
+    <button type="button" class="shelf is-active" data-shelf="toread">To read <span class="count" data-count="toread">0</span></button>
+    <button type="button" class="shelf" data-shelf="reading">Reading <span class="count" data-count="reading">0</span></button>
+    <button type="button" class="shelf" data-shelf="read">Read <span class="count" data-count="read">0</span></button>
+  </nav>
+
+  <p id="reorder-hint" class="hint">Drag the <span aria-hidden="true">⠿</span> handle to set your reading order. Next up is at the top.</p>
+
+  <ol id="book-list" class="book-list"></ol>
+
+  <p id="empty" class="empty" hidden></p>
+</main>
+
+<dialog id="book-dialog" class="sheet">
+  <form method="dialog" class="sheet-inner" id="book-form">
+    <div class="sheet-head">
+      <h2 id="dialog-title">Book</h2>
+      <button type="submit" value="close" class="ghost" aria-label="Close">Done</button>
+    </div>
+    <div id="dialog-body" class="sheet-body"></div>
+  </form>
+</dialog>
+
+<dialog id="backup-dialog" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <div class="sheet-head">
+      <h2>Backup</h2>
+      <button type="submit" value="close" class="ghost">Done</button>
+    </div>
+    <div class="sheet-body">
+      <p class="muted">Your list lives only on this device. Export a copy now and then so you can restore it if you clear Safari's data or move to a new phone.</p>
+      <div class="stack">
+        <button type="button" id="export-btn">Export a copy&hellip;</button>
+        <label class="file-btn">
+          <input type="file" id="import-input" accept="application/json,.json">
+          <span>Restore from a file&hellip;</span>
+        </label>
+        <p id="backup-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<template id="book-template">
+  <li class="book" draggable="false">
+    <button type="button" class="grip" aria-label="Reorder" title="Drag to reorder">
+      <span aria-hidden="true">⠿</span>
+    </button>
+    <div class="cover-wrap">
+      <img class="cover" alt="" loading="lazy" decoding="async">
+      <span class="cover-fallback" aria-hidden="true"></span>
+    </div>
+    <div class="meta">
+      <p class="title"></p>
+      <p class="author"></p>
+      <p class="sub muted"></p>
+    </div>
+    <div class="row-actions">
+      <button type="button" class="ghost up" aria-label="Move up">&uarr;</button>
+      <button type="button" class="ghost down" aria-label="Move down">&darr;</button>
+      <button type="button" class="ghost open" aria-label="Open details">&hellip;</button>
+    </div>
+  </li>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

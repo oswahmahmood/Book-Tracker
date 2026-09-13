@@ -1,1 +1,94 @@
-# Book-Tracker
+# Reading list
+
+A personal to-read list. Type an ISBN, it pulls the title, author, year, page
+count and cover art; drag the books into the order you actually want to read
+them in. Everything is stored on your own device — no account, no server, no
+sign-in.
+
+Three shelves: **To read** (the queue, in your order), **Reading**, **Read**.
+
+## What format is this?
+
+It's a plain web app — HTML, CSS and one JavaScript file, no build step and no
+dependencies — set up as a **PWA** (progressive web app). On an iPhone you add
+it to the Home Screen and it behaves like an app: its own icon, full screen, no
+Safari chrome, works offline.
+
+That's the format that gets you an app on your phone today without a Mac, Xcode
+or an Apple Developer account. See "If you want a real native app" below for
+the other route.
+
+## Put it on your iPhone
+
+1. **Host it.** Any static host works; GitHub Pages is free:
+   merge this branch to `main`, then Settings → Pages → Build and deployment →
+   Source: **GitHub Actions**. The workflow in `.github/workflows/pages.yml`
+   publishes it at `https://<your-username>.github.io/book-tracker/`.
+2. **Open that URL in Safari on your iPhone** (it must be Safari — Chrome on iOS
+   can't install to the Home Screen).
+3. **Share → Add to Home Screen.** Done. Tap the icon and it opens standalone.
+
+Anything pushed to `main` afterwards updates the app the next time you open it.
+
+## Running it locally
+
+No toolchain needed, but it does need to be served over http (service workers
+don't run from `file://`):
+
+```sh
+npx http-server -p 8099 -c-1 .   # then open http://localhost:8099
+```
+
+## Where the data comes from
+
+- [Open Library](https://openlibrary.org/developers/api) — tried first. Open
+  data, no API key, good cover art at `covers.openlibrary.org`.
+- [Google Books](https://developers.google.com/books) — fallback when Open
+  Library has no record, which happens with some recent or regional editions.
+
+Both are free and need no key at this volume. If an ISBN turns up nothing in
+either, search by title instead — typing anything that isn't a valid ISBN runs
+a title search and lets you pick from the results.
+
+ISBNs are checked for a valid check digit before any lookup, so a mistyped
+digit is caught immediately rather than coming back as "not found".
+
+## Your data
+
+The list lives in this browser's `localStorage`, under the key
+`reading-list.v1`. It is never sent anywhere.
+
+That also means it can be lost — clearing Safari's website data wipes it, and
+iOS can evict storage for sites you haven't opened in a while (adding the app
+to the Home Screen makes that much less likely, but isn't a guarantee). So:
+**Backup → Export a copy** now and then. On iPhone that opens the share sheet,
+so you can drop the JSON file into Files or iCloud Drive. *Restore from a file*
+reads it back and skips anything already on the list.
+
+## Files
+
+| File | What it is |
+| --- | --- |
+| `index.html` | Markup and the row/dialog templates |
+| `app.css` | Styles, light and dark |
+| `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
+| `sw.js` | Service worker — caches the app shell and cover images for offline use |
+| `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
+| `tools/make-icons.py` | Regenerates `icons/` — no image libraries needed |
+
+## If you want a real native app
+
+This PWA is the fastest path and covers nearly everything you asked for. A
+native iOS app (SwiftUI + SwiftData, same two APIs) is worth it for two things:
+
+- **Barcode scanning** — point the camera at the back of a book instead of
+  typing 13 digits. Safari on iOS still doesn't support the barcode-detection
+  API, so in a web app this needs a heavyweight JS scanning library; in a native
+  app it's a few lines of VisionKit.
+- **iCloud sync** and Home Screen widgets.
+
+What that route costs you: a Mac with Xcode, and signing. A free Apple ID can
+install your own app on your own iPhone, but it expires every 7 days and needs
+re-installing from Xcode. The **Apple Developer Program ($99/year)** gives you
+year-long signing and TestFlight. Personal apps never need to go through App
+Store review — the App Store is only for distribution to other people.
