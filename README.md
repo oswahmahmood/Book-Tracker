@@ -20,13 +20,19 @@ the other route.
 
 ## Put it on your iPhone
 
-1. **Host it.** Any static host works; GitHub Pages is free:
-   merge this branch to `main`, then Settings → Pages → Build and deployment →
-   Source: **GitHub Actions**. The workflow in `.github/workflows/pages.yml`
-   publishes it at `https://<your-username>.github.io/book-tracker/`.
-2. **Open that URL in Safari on your iPhone** (it must be Safari — Chrome on iOS
-   can't install to the Home Screen).
-3. **Share → Add to Home Screen.** Done. Tap the icon and it opens standalone.
+1. **Merge this branch into `main`.** Nothing is published until you do — the
+   workflow in `.github/workflows/pages.yml` only runs on a push to `main`, so
+   until then the address below returns a 404.
+2. **Switch Pages on:** Settings → Pages → Build and deployment → Source:
+   **GitHub Actions**. Merging with this already set works too; either order is
+   fine, but both have to happen.
+3. **Wait for the deploy.** The run shows up under the repository's Actions tab
+   and takes a minute or two. When it goes green the site is live at
+   `https://oswahmahmood.github.io/Book-Tracker/` — note the capitals, these
+   addresses are case-sensitive.
+4. **Open that address in Safari on your iPhone** (it must be Safari — Chrome on
+   iOS can't install to the Home Screen).
+5. **Share → Add to Home Screen.** Done. Tap the icon and it opens standalone.
 
 Anything pushed to `main` afterwards updates the app the next time you open it.
 
