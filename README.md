@@ -120,7 +120,7 @@ reads it back and skips anything already on the list.
 | File | What it is |
 | --- | --- |
 | `index.html` | Markup and the row/dialog templates |
-| `app.css` | Styles, light and dark |
+| `app.css` | Styles — one blush palette, in light mode whatever the phone is set to |
 | `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
 | `sw.js` | Service worker — caches the app shell and cover images for offline use |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
