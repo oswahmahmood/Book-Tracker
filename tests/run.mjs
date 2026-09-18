@@ -396,6 +396,42 @@ await check('gives the same offline message when a title search cannot reach any
   await ctx.close();
 });
 
+await check('says the services are busy, not that you are offline, when throttled', async () => {
+  let attempts = 0;
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+  await ctx.route(/openlibrary\.org/, (r) => { attempts++; r.fulfill({ status: 429, body: 'slow down' }); });
+  await ctx.route(/googleapis\.com/, (r) => { attempts++; r.fulfill({ status: 429, body: 'slow down' }); });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.fill('#query', 'the good immigrant');
+  await page.click('#add-btn');
+  await page.waitForSelector('#add-status.error');
+  const message = await page.textContent('#add-status');
+  assert.match(message, /busy/, `expected a "busy" message, got: ${message}`);
+  assert.doesNotMatch(message, /offline/, 'the phone is online — do not blame the connection');
+  assert.match(message, /429/);
+  assert.ok(attempts >= 4, `each service should be retried once before giving up, saw ${attempts} calls`);
+  await ctx.close();
+});
+
+await check('a throttled lookup succeeds on the retry', async () => {
+  let first = true;
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+  await ctx.route(/openlibrary\.org\/api\/books/, (r) => {
+    if (first) { first = false; return r.fulfill({ status: 429, body: 'slow down' }); }
+    return r.fulfill(json(olRecord(true)));
+  });
+  await ctx.route(/covers\.openlibrary\.org\//, (r) => r.fulfill(image()));
+  await ctx.route(/googleapis\.com/, (r) => r.fulfill(json({ items: [] })));
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.fill('#query', ISBN);
+  await page.click('#add-btn');
+  await page.waitForSelector('.book');
+  assert.deepEqual(await titles(page), ['Piranesi']);
+  await ctx.close();
+});
+
 await check('exports and restores the list', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 2);

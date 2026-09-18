@@ -100,17 +100,58 @@
 
   /* ------------------------------------------------------------ book APIs */
 
-  async function getJSON(url, ms = 9000) {
+  const serviceName = (url) => (url.includes('openlibrary.org') ? 'Open Library' : 'Google Books');
+
+  async function fetchJSON(url, ms) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ms);
     try {
       const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) {
+        // Keep the status: being turned away is a different problem from being
+        // unable to reach anything, and they need different advice.
+        throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, service: serviceName(url) });
+      }
       return await res.json();
+    } catch (err) {
+      err.service = err.service || serviceName(url);
+      throw err;
     } finally {
       clearTimeout(timer);
     }
   }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /* Neither service needs an API key, and the price of that is being throttled
+     when you look up a few books in a row. That is usually over in a second, so
+     take the hint and try once more rather than reporting failure. */
+  async function getJSON(url, ms = 9000) {
+    try {
+      return await fetchJSON(url, ms);
+    } catch (err) {
+      const worthRetrying = err.status === 429 || err.status >= 500;
+      if (!worthRetrying) throw err;
+      await wait(900);
+      return fetchJSON(url, ms);
+    }
+  }
+
+  /* Says what actually happened. "You may be offline" while the phone is plainly
+     online sends you hunting for a problem you do not have. */
+  function lookupFailure(errors) {
+    const refused = errors.filter((err) => err.status);
+    if (!refused.length || navigator.onLine === false) {
+      return 'Couldn\u2019t reach the book databases \u2014 you may be offline.';
+    }
+    const busy = refused.filter((err) => err.status === 429 || err.status >= 500);
+    const detail = refused.map((err) => `${err.service} ${err.status}`).join(', ');
+    return busy.length
+      ? `The book databases are busy and turned the request away (${detail}). Wait a moment and try again.`
+      : `The book databases refused the request (${detail}). The ISBN from the back cover may still work.`;
+  }
+
+  const failure = (errors) => Object.assign(new Error('lookup-failed'), { userMessage: lookupFailure(errors) });
 
   function googleCover(links) {
     const src = links?.thumbnail || links?.smallThumbnail;
@@ -216,7 +257,7 @@
       if (data?.items?.length) return fromGoogle(data.items[0], isbn);
     } catch (err) { errors.push(err); }
 
-    if (errors.length === 2) throw new Error('offline');
+    if (errors.length === 2) throw failure(errors);
     return null;
   }
 
@@ -294,7 +335,9 @@
         .then((data) => (data?.items || []).map((item) => fromGoogle(item, ''))),
     ]);
 
-    if (openLibrary.status === 'rejected' && google.status === 'rejected') throw new Error('offline');
+    if (openLibrary.status === 'rejected' && google.status === 'rejected') {
+      throw failure([openLibrary.reason, google.reason]);
+    }
 
     const merged = mergeResults([openLibrary.value || [], google.value || []]);
     return rankResults(merged, query).slice(0, 12);
@@ -521,9 +564,7 @@
         setStatus(addStatus, '');
       }
     } catch (err) {
-      setStatus(addStatus, err.message === 'offline'
-        ? 'Couldn’t reach the book databases — you may be offline.'
-        : 'Lookup failed. Try again in a moment.', true);
+      setStatus(addStatus, err.userMessage || 'Lookup failed. Try again in a moment.', true);
     } finally {
       addBtn.disabled = false;
     }
