@@ -376,6 +376,26 @@ await check('exports and restores the list', async () => {
   await ctx.close();
 });
 
+await check('picks up a new version instead of serving its cached copy forever', async () => {
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true,
+    'the service worker should be in charge before this means anything');
+
+  // Stand in for a deploy: the server now holds different CSS.
+  await ctx.route(/app\.css$/, (r) => r.fulfill({
+    status: 200, contentType: 'text/css', body: 'body { background: rgb(1, 2, 3); }',
+  }));
+  await page.reload();
+  const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  assert.equal(background, 'rgb(1, 2, 3)',
+    'a cache-first worker would keep serving the old stylesheet and never update');
+  await ctx.close();
+});
+
 await check('works with no network once installed', async () => {
   const ctx = await browser.newContext({ ...devices['iPhone 13'] });
   await ctx.route(/covers\.openlibrary\.org\//, (r) => r.fulfill(image()));

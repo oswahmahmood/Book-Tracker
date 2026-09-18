@@ -34,7 +34,11 @@ the other route.
    iOS can't install to the Home Screen).
 5. **Share → Add to Home Screen.** Done. Tap the icon and it opens standalone.
 
-Anything pushed to `main` afterwards updates the app the next time you open it.
+Anything pushed to `main` afterwards updates the app the next time you open
+it: the app's own files are fetched from the network first and only fall back
+to the cached copy when there is no connection. (Cache-first would be a hair
+faster and would pin the phone to whichever copy it saw first — no update could
+ever land. It did exactly that once.)
 
 No prompts, banners or permission requests come with any of this: the app asks
 for nothing — no notifications, no camera, no location — and iOS has no install
@@ -129,7 +133,7 @@ reads it back and skips anything already on the list.
 | `index.html` | Markup and the row/dialog templates |
 | `app.css` | Styles — one blush palette, in light mode whatever the phone is set to |
 | `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
-| `sw.js` | Service worker — caches the app shell and cover images for offline use |
+| `sw.js` | Service worker — network-first for the app itself, cache-first for covers |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
 | `tools/make-icons.py` | Regenerates `icons/` — no image libraries needed |
 | `tests/run.mjs` | The end-to-end suite |
