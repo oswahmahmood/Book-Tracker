@@ -222,6 +222,8 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .result:hover { border-color: var(--accent); background: var(--accent-soft); }
 .result img { width: 40px; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; background: var(--accent-soft); }
 
+.results-hint { margin: 12px 4px 0; }
+
 .sheet {
   border: 0;
   padding: 0;

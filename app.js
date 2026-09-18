@@ -189,36 +189,84 @@
     return null;
   }
 
+  function fromOpenLibraryDoc(d) {
+    return {
+      isbn: (d.isbn || []).find((i) => i.length === 13) || (d.isbn || [])[0] || '',
+      title: d.title || 'Untitled',
+      subtitle: d.subtitle || '',
+      authors: d.author_name || [],
+      publisher: (d.publisher || [])[0] || '',
+      year: d.first_publish_year ? String(d.first_publish_year) : '',
+      pages: d.number_of_pages_median || null,
+      cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : '',
+      source: 'Open Library',
+    };
+  }
+
+  const searchKey = (info) => `${info.title.toLowerCase().trim()}|${(info.authors[0] || '').toLowerCase().trim()}`;
+
+  /* Common titles ("Mind the Gap" has a dozen namesakes) come back ranked by
+     whatever the service thinks is popular, which buries the book you meant.
+     Score an exact title match above a partial one, and prefer entries that
+     carry enough detail — a cover, an author — to be recognisable. */
+  function rankResults(results, query) {
+    const wanted = query.toLowerCase().trim();
+    const score = (info) => {
+      const title = info.title.toLowerCase().trim();
+      const authors = info.authors.join(' ').toLowerCase();
+      let n = 0;
+      if (title === wanted) n += 6;
+      else if (title.startsWith(wanted)) n += 4;
+      else if (title.includes(wanted)) n += 2;
+      // the whole query matching title-plus-author is the strongest signal of all
+      if (wanted.split(/\s+/).every((word) => `${title} ${authors}`.includes(word))) n += 3;
+      if (info.cover) n += 1;
+      if (info.authors.length) n += 1;
+      return n;
+    };
+    return results
+      .map((info, i) => ({ info, i, n: score(info) }))
+      .sort((a, b) => b.n - a.n || a.i - b.i)
+      .map((entry) => entry.info);
+  }
+
+  function mergeResults(lists) {
+    const seen = new Map();
+    for (const info of lists.flat()) {
+      const key = searchKey(info);
+      const kept = seen.get(key);
+      if (!kept) {
+        seen.set(key, info);
+        continue;
+      }
+      // Same book from both services: keep whichever detail each one has.
+      kept.cover = kept.cover || info.cover;
+      kept.isbn = kept.isbn || info.isbn;
+      kept.subtitle = kept.subtitle || info.subtitle;
+      kept.pages = kept.pages || info.pages;
+      kept.publisher = kept.publisher || info.publisher;
+    }
+    return [...seen.values()];
+  }
+
+  /* Ask both services every time and merge — not one as the other's fallback.
+     They rank differently, and between them the book you meant is usually in
+     the first few. */
   async function searchTitle(query) {
     const q = encodeURIComponent(query);
-    let openLibraryFailed = false;
-    try {
-      const data = await getJSON(`https://openlibrary.org/search.json?q=${q}&limit=8&fields=title,subtitle,author_name,first_publish_year,number_of_pages_median,isbn,cover_i,publisher`);
-      const docs = data?.docs || [];
-      if (docs.length) {
-        return docs.map((d) => ({
-          isbn: (d.isbn || []).find((i) => i.length === 13) || (d.isbn || [])[0] || '',
-          title: d.title || 'Untitled',
-          subtitle: d.subtitle || '',
-          authors: d.author_name || [],
-          publisher: (d.publisher || [])[0] || '',
-          year: d.first_publish_year ? String(d.first_publish_year) : '',
-          pages: d.number_of_pages_median || null,
-          cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : '',
-          source: 'Open Library',
-        }));
-      }
-    } catch (err) {
-      openLibraryFailed = true;  // fall through to Google
-    }
+    const fields = 'title,subtitle,author_name,first_publish_year,number_of_pages_median,isbn,cover_i,publisher';
 
-    try {
-      const data = await getJSON(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=8`);
-      return (data?.items || []).map((item) => fromGoogle(item, ''));
-    } catch (err) {
-      // Neither service answered — say so plainly rather than blaming the search.
-      throw new Error(openLibraryFailed ? 'offline' : 'search-failed');
-    }
+    const [openLibrary, google] = await Promise.allSettled([
+      getJSON(`https://openlibrary.org/search.json?q=${q}&limit=12&fields=${fields}`)
+        .then((data) => (data?.docs || []).map(fromOpenLibraryDoc)),
+      getJSON(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=12`)
+        .then((data) => (data?.items || []).map((item) => fromGoogle(item, ''))),
+    ]);
+
+    if (openLibrary.status === 'rejected' && google.status === 'rejected') throw new Error('offline');
+
+    const merged = mergeResults([openLibrary.value || [], google.value || []]);
+    return rankResults(merged, query).slice(0, 12);
   }
 
   /* ----------------------------------------------------------------- list */
