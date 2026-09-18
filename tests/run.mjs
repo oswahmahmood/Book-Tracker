@@ -75,7 +75,7 @@ const browser = await chromium.launch();
 async function newPage({ serviceWorkers = 'block', routes = {} } = {}) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers });
   await ctx.route(/openlibrary\.org\/api\/books/, (r) => r.fulfill(json(routes.ol ?? olRecord(true))));
-  await ctx.route(/openlibrary\.org\/search\.json/, (r) => r.fulfill(json(searchCatalogue(r.request().url()))));
+  await ctx.route(/openlibrary\.org\/search\.json/, (r) => r.fulfill(json(routes.search ?? searchCatalogue(r.request().url()))));
   await ctx.route(/covers\.openlibrary\.org\//, (r) => (routes.covers === false ? r.abort() : r.fulfill(image())));
   await ctx.route(/googleapis\.com\//, (r) => (routes.google === false ? r.abort() : r.fulfill(json(routes.google ?? { items: [] }))));
   await ctx.route(/books\.google\.com\//, (r) => r.fulfill(image()));
@@ -279,6 +279,63 @@ await check('keeps a subtitle out of the title but shows the author', async () =
   await page.locator('.book').first().locator('.open').click();
   const sheet = await page.locator('#dialog-body').textContent();
   assert.match(sheet, /The truth about desire/, 'the subtitle belongs in the detail sheet');
+  await ctx.close();
+});
+
+await check('surfaces a common title that only one of the two services ranks well', async () => {
+  // What Open Library actually does with "mind the gap": plenty of namesakes,
+  // none of them the book being looked for.
+  const namesakes = { docs: [
+    { title: 'Mind the Gap', author_name: ['A Different Author'], first_publish_year: 2005, cover_i: 31 },
+    { title: 'Mind the Gap: A History of the Underground', author_name: ['Someone Else'], first_publish_year: 2013, cover_i: 32 },
+    { title: 'Mind the Gap in Financial Planning', author_name: ['A Third Person'], first_publish_year: 2018, cover_i: 33 },
+  ] };
+  const google = { items: [{ volumeInfo: {
+    title: 'Mind the Gap', subtitle: 'The truth about desire and how to futureproof your sex life',
+    authors: ['Karen Gurney'], publishedDate: '2020', pageCount: 288,
+    imageLinks: { thumbnail: 'http://books.google.com/books/content?id=g&zoom=1&edge=curl' },
+  } }] };
+
+  const { ctx, page } = await newPage({ routes: { search: namesakes, google } });
+
+  // The bare title is ambiguous, but the right book must at least be offered.
+  await page.fill('#query', 'mind the gap');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  const offered = await page.locator('#results .result').allTextContents();
+  assert.ok(offered.some((t) => t.includes('Karen Gurney')), 'the Gurney edition should be among the results');
+
+  // Naming the author should put it first.
+  await page.click('#results-close');
+  await page.fill('#query', 'mind the gap karen gurney');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  assert.match(await page.locator('#results .result').first().textContent(), /Karen Gurney/);
+
+  await page.locator('#results .result').first().click();
+  await page.waitForSelector('.book');
+  assert.equal(await page.locator('.book .title').textContent(), 'Mind the Gap');
+  assert.equal(await page.locator('.book .author').textContent(), 'Karen Gurney');
+  await ctx.close();
+});
+
+await check('does not list the same book twice when both services return it', async () => {
+  const both = { docs: [{ title: 'Piranesi', author_name: ['Susanna Clarke'], first_publish_year: 2020, cover_i: 41 }] };
+  const google = { items: [{ volumeInfo: {
+    title: 'Piranesi', authors: ['Susanna Clarke'], publishedDate: '2020', pageCount: 245,
+    industryIdentifiers: [{ type: 'ISBN_13', identifier: '9781526622426' }],
+  } }] };
+  const { ctx, page } = await newPage({ routes: { search: both, google } });
+  await page.fill('#query', 'piranesi');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  assert.equal(await page.locator('#results .result').count(), 1, 'the duplicate should be merged away');
+  await page.locator('#results .result').first().click();
+  await page.waitForSelector('.book');
+  // the merged entry keeps the cover from one service and the ISBN from the other
+  const book = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.match(book.cover, /covers\.openlibrary\.org/);
+  assert.equal(book.isbn, '9781526622426');
   await ctx.close();
 });
 

@@ -79,9 +79,16 @@ Books, adds each one, and prints what came back — author, year, the ISBN the
 service holds, and whether the cover image actually rendered. Worth running
 once after any change to the lookup code.
 
-Note that a search like "mind the gap" is ambiguous (there are several books by
-that name), so the app searches on whatever you type — adding the author, or
-using the ISBN, is the way to land on the right edition.
+A title search asks both services at once and merges what comes back, rather
+than treating one as the other's fallback. They rank very differently: a book
+with a common title ("Mind the Gap" has a dozen namesakes) can be buried by one
+service and first on the other, and asking only the first one hides it
+completely. Results are de-duplicated, with the cover from whichever service
+had one and the ISBN from whichever held it, then ranked by how closely the
+title and author match what was typed.
+
+It is still worth adding the author's surname for a common title — the results
+panel says so — since half a dozen books really are called the same thing.
 
 ## Where the data comes from
 
@@ -120,7 +127,7 @@ reads it back and skips anything already on the list.
 | File | What it is |
 | --- | --- |
 | `index.html` | Markup and the row/dialog templates |
-| `app.css` | Styles, light and dark |
+| `app.css` | Styles — one blush palette, in light mode whatever the phone is set to |
 | `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
 | `sw.js` | Service worker — caches the app shell and cover images for offline use |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
