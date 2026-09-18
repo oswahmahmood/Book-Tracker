@@ -91,6 +91,16 @@ async function addIsbn(page, isbn = ISBN) {
   await page.click('#add-btn');
 }
 
+await check('starts cleanly when a list is already saved', async () => {
+  // A fresh browser exercises none of the loading path, so this failure mode
+  // only shows up for someone who already has books — that is, the actual user.
+  const { ctx, page, errors } = await newPage();
+  await seed(page, 3);
+  assert.deepEqual(await titles(page), ['One', 'Two', 'Three']);
+  assert.deepEqual(errors, [], 'nothing should throw while reading a saved list');
+  await ctx.close();
+});
+
 await check('adds a book from its ISBN', async () => {
   const { ctx, page, errors } = await newPage();
   await addIsbn(page);

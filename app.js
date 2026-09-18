@@ -15,6 +15,9 @@
 
   /* ---------------------------------------------------------------- state */
 
+  // Declared before load(), which fills the two timestamps in as it reads.
+  let changedAt = 0;   // when the list last changed
+  let exportedAt = 0;  // when a copy was last saved off the device
   let books = load();
   let shelf = 'toread';
 
@@ -23,6 +26,8 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
+      changedAt = parsed?.changedAt || 0;
+      exportedAt = parsed?.exportedAt || 0;
       return Array.isArray(parsed?.books) ? parsed.books.filter(isBook) : [];
     } catch (err) {
       console.warn('Could not read saved list', err);
@@ -30,12 +35,38 @@
     }
   }
 
-  function save() {
+  function save({ exported = false } = {}) {
+    const now = Date.now();
+    if (exported) exportedAt = now; else changedAt = now;
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books, changedAt, exportedAt }));
     } catch (err) {
       setStatus(addStatus, 'Could not save — this browser is out of storage space.', true);
     }
+    markBackupState();
+  }
+
+  /* The list lives only in this browser, so an un-exported list is one bad tap
+     from gone. Say so quietly but visibly. */
+  function needsBackup() {
+    return books.length > 0 && changedAt > exportedAt;
+  }
+
+  function markBackupState() {
+    backupBtn.classList.toggle('needs-backup', needsBackup());
+  }
+
+  function describeBackupAge() {
+    if (!books.length) return 'Nothing to back up yet.';
+    if (!exportedAt) {
+      return 'You have never exported this list. It exists only on this device \u2014 '
+        + 'deleting the Home Screen icon or clearing Safari\u2019s data would take it with it.';
+    }
+    const days = Math.floor((Date.now() - exportedAt) / 86400000);
+    const when = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+    return needsBackup()
+      ? `Last exported ${when}, and you have added or changed books since.`
+      : `Last exported ${when}. Nothing has changed since.`;
   }
 
   function isBook(b) { return b && typeof b === 'object' && typeof b.title === 'string'; }
@@ -398,6 +429,7 @@
 
   /* ---------------------------------------------------------------- adding */
 
+  const backupBtn = document.getElementById('backup-btn');
   const form = document.getElementById('add-form');
   const queryInput = document.getElementById('query');
   const addBtn = document.getElementById('add-btn');
@@ -648,9 +680,12 @@
 
   const backupDialog = document.getElementById('backup-dialog');
   const backupStatus = document.getElementById('backup-status');
+  const backupAge = document.getElementById('backup-age');
 
-  document.getElementById('backup-btn').addEventListener('click', () => {
+  backupBtn.addEventListener('click', () => {
     setStatus(backupStatus, '');
+    backupAge.textContent = describeBackupAge();
+    backupAge.classList.toggle('warn', needsBackup() || !exportedAt);
     backupDialog.showModal();
   });
 
@@ -664,6 +699,9 @@
     if (navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: 'Reading list backup' });
+        save({ exported: true });
+        backupAge.textContent = describeBackupAge();
+        backupAge.classList.remove('warn');
         return;
       } catch (err) {
         if (err.name === 'AbortError') return;
@@ -675,6 +713,9 @@
     a.download = file.name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    save({ exported: true });
+    backupAge.textContent = describeBackupAge();
+    backupAge.classList.remove('warn');
     setStatus(backupStatus, `Saved ${file.name}.`);
   });
 
@@ -708,6 +749,12 @@
 
   syncShelfButtons();
   render();
+  markBackupState();
+
+  /* Ask the browser not to evict this list when it is short of space. It may
+     refuse, and it is no protection against the site's data being cleared by
+     hand, but it costs nothing to ask. */
+  navigator.storage?.persist?.().catch(() => { /* not supported here */ });
 
   /* Books added while offline have no cover art yet — try again now, a few at
      a time so a long list doesn't fire off dozens of requests at once. */

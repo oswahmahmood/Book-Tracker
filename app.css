@@ -224,6 +224,21 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 
 .results-hint { margin: 12px 4px 0; }
 
+/* A list that has never been exported is one bad tap from gone. */
+#backup-btn.needs-backup { position: relative; border-color: var(--accent); color: var(--accent); }
+#backup-btn.needs-backup::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.backup-age { margin: 0; font-size: .9rem; color: var(--muted); }
+.backup-age.warn { color: var(--accent); font-weight: 500; }
+
 .sheet {
   border: 0;
   padding: 0;
