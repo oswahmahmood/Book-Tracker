@@ -344,6 +344,13 @@
     node.querySelector('.author').textContent = (book.authors || []).join(', ') || 'Unknown author';
     node.querySelector('.sub').textContent = [book.year, book.pages ? `${book.pages} pp` : ''].filter(Boolean).join(' · ');
 
+    // Why you wanted it is the thing worth seeing at a glance, so it goes in
+    // the row; the rest of a long note stays in the detail sheet.
+    const note = node.querySelector('.note');
+    const written = (book.notes || '').trim();
+    note.textContent = written;
+    note.hidden = !written;
+
     node.querySelector('.open').addEventListener('click', () => openDetail(book.id));
     node.querySelector('.up').addEventListener('click', () => nudge(book.id, -1));
     node.querySelector('.down').addEventListener('click', () => nudge(book.id, 1));
@@ -352,6 +359,14 @@
   }
 
   function byId(id) { return books.find((b) => b.id === id); }
+
+  function showNote(book) {
+    const note = listEl.querySelector(`[data-id="${book.id}"] .note`);
+    if (!note) return;
+    const written = (book.notes || '').trim();
+    note.textContent = written;
+    note.hidden = !written;
+  }
 
   /* Rewrite the global array so the books on this shelf take the order given,
      leaving books on other shelves where they are. */
@@ -587,6 +602,10 @@
   const dialogBody = document.getElementById('dialog-body');
   const dialogTitle = document.getElementById('dialog-title');
 
+  // Notes save as they are typed; the row behind the sheet shows them, so it
+  // needs redrawing once the sheet is out of the way.
+  dialog.addEventListener('close', () => render());
+
   function openDetail(id) {
     const book = byId(id);
     if (!book) return;
@@ -641,7 +660,11 @@
     const notes = document.createElement('textarea');
     notes.rows = 3;
     notes.value = book.notes || '';
-    notes.addEventListener('input', () => { book.notes = notes.value; save(); });
+    notes.addEventListener('input', () => {
+      book.notes = notes.value;
+      save();
+      showNote(book);  // the row behind the sheet keeps up as you type
+    });
     notesField.append(notes);
 
     const actions = document.createElement('div');

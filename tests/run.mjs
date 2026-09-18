@@ -62,7 +62,8 @@ async function check(name, fn) {
     await fn();
     results.push(`  ok   ${name}`);
   } catch (err) {
-    results.push(`  FAIL ${name}\n       ${err.message.split('\n')[0]}`);
+    const detail = err.message.split('\n').filter(Boolean).slice(0, 5).join('\n       ');
+    results.push(`  FAIL ${name}\n       ${detail}`);
     process.exitCode = 1;
   }
 }
@@ -166,6 +167,31 @@ await check('reorders by dragging the handle, and the order survives a reload', 
   await page.reload();
   await page.waitForSelector('.book');
   assert.deepEqual(await titles(page), ['Three', 'One', 'Two']);
+  await ctx.close();
+});
+
+await check('shows the note in the row, and nothing when there is none', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 2);
+  assert.equal(await page.locator('.book .note').first().isHidden(), true, 'no note, no line');
+
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', 'Ada keeps quoting it at me');
+  await page.click('#book-dialog button[type="submit"]');
+  await page.waitForFunction(
+    (text) => document.querySelector('.book .note')?.textContent === text,
+    'Ada keeps quoting it at me');
+  assert.equal(await page.locator('.book .note').nth(1).isHidden(), true);
+
+  // a long note is clamped in the row but kept whole in the sheet
+  const essay = 'Because '.repeat(40).trim();
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', essay);
+  await page.click('#book-dialog button[type="submit"]');
+  const row = await page.locator('.book .note').first().boundingBox();
+  assert.ok(row.height < 44, `the row note should stay short, was ${row.height}px`);
+  await page.locator('.book').first().locator('.open').click();
+  assert.equal(await page.inputValue('#book-dialog textarea'), essay, 'the sheet keeps all of it');
   await ctx.close();
 });
 
