@@ -236,6 +236,7 @@
 
     for (const book of rows) listEl.append(renderBook(book));
 
+    listEl.classList.toggle('is-queue', shelf === 'toread');
     emptyEl.hidden = rows.length > 0;
     emptyEl.textContent = EMPTY_COPY[shelf];
     hintEl.hidden = shelf !== 'toread' || rows.length < 2;
