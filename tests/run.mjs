@@ -551,6 +551,7 @@ await check('another device picks the list up from the sync link', async () => {
 
   const second = await newPage();
   await second.ctx.route(/sync\.example\.test/, worker.handle);
+  second.page.on('dialog', (d) => d.accept());
   await second.page.goto(BASE + link);
   await second.page.waitForSelector('.book');
   assert.deepEqual(await titles(second.page), ['One', 'Two', 'Three'], 'the list should arrive on the new device');
@@ -580,6 +581,40 @@ await check('a newer list from the cloud replaces an older one on the device', a
   await ctx.close();
 });
 
+await check('a sync link has to be agreed to before it takes the list', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 2);
+
+  // a link from anywhere else: refusing it must change nothing
+  page.on('dialog', (d) => d.dismiss());
+  await page.goto(`${BASE}#sync=${encodeURIComponent('https://somewhere.else.test')}&key=abcdefghijklmnopqrstuvwx`);
+  await page.waitForSelector('.book');
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => localStorage.getItem('reading-list.sync')), null,
+    'a refused link must not configure sync');
+  assert.equal(worker.store.size, 0, 'and must not send the list anywhere');
+  assert.deepEqual(await titles(page), ['One', 'Two'], 'and must not replace the list');
+  await ctx.close();
+});
+
+await check('a bare tap on the drag handle is not a change', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 2);
+  await turnSyncOn(page);
+  await page.waitForTimeout(1500);
+  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).changedAt);
+
+  await page.locator('.book').first().locator('.grip').click();
+  await page.waitForTimeout(1500);
+  const after = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).changedAt);
+  assert.equal(after, before, 'tapping the handle should not count as reordering');
+  await ctx.close();
+});
+
 await check('everything still works with sync switched off', async () => {
   const { ctx, page, errors } = await newPage();
   await seed(page, 2);
@@ -604,6 +639,40 @@ await check('exports and restores the list', async () => {
   assert.match(await page.textContent('#backup-status'), /Restored 2 books/);
   await page.click('#backup-dialog button[type="submit"]');
   assert.deepEqual(await titles(page), ['One', 'Two']);
+  await ctx.close();
+});
+
+await check('restoring a backup does not duplicate books that have no ISBN', async () => {
+  const { ctx, page } = await newPage();
+  await page.evaluate(() => localStorage.setItem('reading-list.v1', JSON.stringify({ version: 1, books: [
+    { id: 'a1', isbn: '', title: 'The Good Immigrant', authors: ['Nikesh Shukla'], status: 'toread', notes: '', cover: '' },
+  ] })));
+  await page.reload();
+  await page.waitForSelector('.book');
+
+  // the same book, saved by another device, so it carries a different id
+  const backup = JSON.stringify({ version: 1, books: [
+    { id: 'b2', isbn: '', title: 'The Good Immigrant', authors: ['Nikesh Shukla'], status: 'toread', notes: '', cover: '' },
+    { id: 'b3', isbn: '', title: 'The Authority Gap', authors: ['Mary Ann Sieghart'], status: 'toread', notes: '', cover: '' },
+  ] });
+  await page.click('#backup-btn');
+  await page.setInputFiles('#import-input', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+  await page.waitForSelector('#backup-status:not(:empty)');
+  assert.match(await page.textContent('#backup-status'), /Restored 1 book/);
+  await page.click('#backup-dialog button[type="submit"]');
+  assert.deepEqual(await titles(page), ['The Good Immigrant', 'The Authority Gap']);
+  await ctx.close();
+});
+
+await check('an unreachable service is not reported as an unknown ISBN', async () => {
+  const { ctx, page } = await newPage({ routes: { google: false } });
+  await page.unroute(/openlibrary\.org\/api\/books/);
+  // Open Library answers, and simply has no record of it
+  await page.route(/openlibrary\.org\/api\/books/, (r) => r.fulfill(json({})));
+  await addIsbn(page);
+  await page.waitForSelector('#add-status.error');
+  const message = await page.textContent('#add-status');
+  assert.doesNotMatch(message, /No record found/, `should not claim the book is unknown: ${message}`);
   await ctx.close();
 });
 

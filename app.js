@@ -265,7 +265,10 @@
       if (data?.items?.length) return fromGoogle(data.items[0], isbn);
     } catch (err) { errors.push(err); }
 
-    if (errors.length === 2) throw failure(errors);
+    // One service saying "no match" while the other never answered is not
+    // proof the book is unknown — say what went wrong instead of blaming
+    // the ISBN.
+    if (errors.length) throw failure(errors);
     return null;
   }
 
@@ -428,11 +431,18 @@
 
   /* Rewrite the global array so the books on this shelf take the order given,
      leaving books on other shelves where they are. */
-  function applyOrder(ids) {
+  function applyOrder(ids, forShelf = shelf) {
     const slots = [];
-    books.forEach((b, i) => { if (b.status === shelf) slots.push(i); });
+    books.forEach((b, i) => { if (b.status === forShelf) slots.push(i); });
     const reordered = ids.map(byId).filter(Boolean);
     if (reordered.length !== slots.length) return;
+
+    // A tap on the drag handle ends as a reorder to the same order. Saving that
+    // would bump the change time, light the backup warning and spend a sync
+    // write on nothing.
+    const unchanged = slots.every((slot, i) => books[slot] === reordered[i]);
+    if (unchanged) return;
+
     slots.forEach((slot, i) => { books[slot] = reordered[i]; });
     save();
   }
@@ -448,11 +458,14 @@
   }
 
   function moveToTop(id) {
-    const ids = visible().map((b) => b.id);
+    const book = byId(id);
+    if (!book) return;
+    // Its shelf, not the one on screen: the sheet that asked may have moved it.
+    const ids = books.filter((b) => b.status === book.status).map((b) => b.id);
     const from = ids.indexOf(id);
     if (from <= 0) return;
     ids.unshift(ids.splice(from, 1)[0]);
-    applyOrder(ids);
+    applyOrder(ids, book.status);
     render();
   }
 
@@ -836,6 +849,7 @@
 
   async function push() {
     if (!sync) return;
+    const sentAt = changedAt;
     try {
       const res = await fetch(listUrl(), {
         method: 'PUT',
@@ -843,10 +857,17 @@
         body: JSON.stringify({ version: 1, changedAt, books }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Saved somewhere other than this phone, which is what a backup is.
-      exportedAt = Date.now();
-      write();
-      setSyncState('Saved to the cloud just now.');
+      // Saved somewhere other than this phone, which is what a backup is — but
+      // only for what was actually sent. An edit made while this was in flight
+      // is not up there yet, and must not be marked as though it were.
+      if (changedAt === sentAt) {
+        exportedAt = Date.now();
+        write();
+        setSyncState('Saved to the cloud just now.');
+      } else {
+        setSyncState('Saved — with more to send.');
+        pushSoon();
+      }
     } catch (err) {
       setSyncState('Could not reach your sync address — the list is still safe on this phone, and will go up next time.');
     }
@@ -908,13 +929,39 @@
     return `${here}#sync=${encodeURIComponent(sync.url)}&key=${encodeURIComponent(sync.key)}`;
   }
 
+  /* Returns true when a link was acted on, so the caller does not also pull.
+     A sync link points this list at somebody's server and hands over the key,
+     so arriving at one is a request to be agreed to, not an instruction: a
+     link from anyone else would otherwise upload the list to them, or replace
+     it with theirs. */
   function adoptLinkFromHash() {
     const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
     const url = hash.get('sync');
     const key = hash.get('key');
-    if (!url || !key) return;
+    if (!url || !key) return false;
     history.replaceState(null, '', location.pathname);  // keep it out of the address bar
-    connectSync(url, key);
+
+    let host;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:') return false;
+      host = parsed.host;
+    } catch (err) {
+      return false;
+    }
+
+    if (sync && sync.url === url && sync.key === key) return false;  // already set up
+
+    const replacing = sync
+      ? '\n\nThis replaces the sync you already have set up.'
+      : '';
+    const agreed = confirm(
+      `Sync this reading list with ${host}?${replacing}\n\n`
+      + 'Only agree if this link is yours. Whoever controls that address can read '
+      + 'and change your list.');
+    if (!agreed) return false;
+
+    return connectSync(url, key);
   }
 
   /* ---------------------------------------------------------------- backup */
@@ -1002,12 +1049,21 @@
       const data = JSON.parse(await file.text());
       const incoming = (data.books || []).filter(isBook);
       if (!incoming.length) throw new Error('empty');
-      const seen = new Set(books.map((b) => b.isbn || b.id));
+      /* Books added by title search have no ISBN, so matching on ISBN alone
+         let them back in as duplicates — and matching on id alone missed the
+         same book saved twice. Any of the three matching is enough. */
+      const identities = (b) => [
+        b.isbn ? `isbn:${b.isbn}` : '',
+        b.id ? `id:${b.id}` : '',
+        `name:${(b.title || '').toLowerCase().trim()}|${((b.authors || [])[0] || '').toLowerCase().trim()}`,
+      ].filter(Boolean);
+
+      const seen = new Set(books.flatMap(identities));
       let added = 0;
       for (const b of incoming) {
-        const key = b.isbn || b.id;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const keys = identities(b);
+        if (keys.some((k) => seen.has(k))) continue;
+        keys.forEach((k) => seen.add(k));
         books.push({ ...b, id: b.id || `b${Math.random().toString(36).slice(2, 9)}` });
         added++;
       }
@@ -1032,11 +1088,10 @@
      hand, but it costs nothing to ask. */
   navigator.storage?.persist?.().catch(() => { /* not supported here */ });
 
-  adoptLinkFromHash();
   // Opening a sync link while the app is already open only changes the part
   // after the #, which is not a fresh load — so watch for that too.
   window.addEventListener('hashchange', adoptLinkFromHash);
-  pull();
+  if (!adoptLinkFromHash()) pull();
 
   /* Books added while offline have no cover art yet — try again now, a few at
      a time so a long list doesn't fire off dozens of requests at once. */

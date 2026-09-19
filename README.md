@@ -62,10 +62,12 @@ npm install
 npm test
 ```
 
-Sixteen end-to-end checks run in a headless iPhone-sized browser: adding by
-ISBN, the check-digit guard, duplicates, title search, both ways of reordering,
-order surviving a reload, shelf moves, the cover fallback chain, the offline
-error messages, export/restore, and the whole app loading with the network cut.
+Thirty-four end-to-end checks run in a headless iPhone-sized browser: adding
+by ISBN, the check-digit guard, duplicates, title search, both ways of
+reordering, order surviving a reload, shelf moves, the cover fallback chain,
+the offline and throttled error messages, export/restore, sync in both
+directions, updates reaching an installed app, and the whole app loading with
+the network cut.
 One of them builds a real four-book queue — *The Good Immigrant*, *The Inner
 Game of Tennis*, *Mind the Gap* and *The Authority Gap* — reorders it and
 checks it holds. The book APIs are stubbed, so the suite is deterministic and
