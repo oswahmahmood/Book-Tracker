@@ -195,6 +195,59 @@ await check('shows the note in the row, and nothing when there is none', async (
   await ctx.close();
 });
 
+await check('tapping anywhere on a book opens it, except the controls', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 2);
+
+  // the cover, the title, the empty space — all of it
+  for (const spot of ['.cover-wrap', '.title', '.meta']) {
+    await page.locator('.book').first().locator(spot).click();
+    assert.equal(await page.locator('#book-dialog').isVisible(), true, `${spot} should open the book`);
+    await page.click('#book-dialog button[type="submit"]');
+  }
+
+  // the drag handle and the arrows still do their own jobs
+  await page.locator('.book').first().locator('.grip').click();
+  assert.equal(await page.locator('#book-dialog').isVisible(), false, 'the drag handle must not open the sheet');
+  await page.locator('.book').last().locator('.up').click();
+  assert.equal(await page.locator('#book-dialog').isVisible(), false, 'the arrows must not open the sheet');
+  assert.deepEqual(await titles(page), ['Two', 'One'], 'the arrow should still have reordered');
+  await ctx.close();
+});
+
+await check('a book links out to where you can read more', async () => {
+  const { ctx, page } = await newPage();
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  await page.locator('.book .title').click();
+
+  const links = await page.locator('#book-dialog .book-link').evaluateAll((els) =>
+    els.map((el) => ({ label: el.textContent, href: el.href, target: el.target, rel: el.rel })));
+  assert.equal(links.length, 3);
+  assert.deepEqual(links.map((l) => l.label), ['Google Books', 'Open Library', 'Amazon']);
+  for (const link of links) {
+    assert.match(link.href, new RegExp(ISBN), `${link.label} should point at the ISBN: ${link.href}`);
+    assert.equal(link.target, '_blank');
+    assert.match(link.rel, /noopener/);
+  }
+  await ctx.close();
+});
+
+await check('a book with no ISBN still links out, by title and author', async () => {
+  const { ctx, page } = await newPage();
+  await page.fill('#query', 'the good immigrant');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  await page.locator('#results .result').first().click();
+  await page.waitForSelector('.book');
+  await page.locator('.book .title').click();
+  const hrefs = await page.locator('#book-dialog .book-link').evaluateAll((els) => els.map((el) => el.href));
+  for (const href of hrefs) {
+    assert.match(href.toLowerCase(), /immigrant/, `expected a title search, got ${href}`);
+  }
+  await ctx.close();
+});
+
 await check('moving a book between shelves keeps the other shelf intact', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 3);

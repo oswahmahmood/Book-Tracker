@@ -176,6 +176,7 @@
       pages: data.number_of_pages || null,
       cover: data.cover?.large || data.cover?.medium
         || (isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false` : ''),
+      info: data.url || '',
       source: 'Open Library',
     };
   }
@@ -193,6 +194,7 @@
       year: (String(v.publishedDate || '').match(/\d{4}/) || [''])[0],
       pages: v.pageCount || null,
       cover: googleCover(v.imageLinks),
+      info: v.infoLink || v.canonicalVolumeLink || '',
       source: 'Google Books',
     };
   }
@@ -401,6 +403,13 @@
     note.hidden = !written;
 
     node.querySelector('.open').addEventListener('click', () => openDetail(book.id));
+
+    // Tapping anywhere on the row opens it — the drag handle and the arrows do
+    // their own jobs, so they are left alone.
+    node.addEventListener('click', (event) => {
+      if (event.target.closest('.grip, .up, .down, .open')) return;
+      openDetail(book.id);
+    });
     node.querySelector('.up').addEventListener('click', () => nudge(book.id, -1));
     node.querySelector('.down').addEventListener('click', () => nudge(book.id, 1));
     node.querySelector('.grip').addEventListener('pointerdown', (e) => startDrag(e, node));
@@ -714,6 +723,22 @@
     });
     notesField.append(notes);
 
+    const links = document.createElement('div');
+    links.className = 'field';
+    links.append(labelSpan('Read more about it'));
+    const linkRow = document.createElement('div');
+    linkRow.className = 'links';
+    for (const { label, href } of bookLinks(book)) {
+      const a = document.createElement('a');
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'book-link';
+      a.textContent = label;
+      linkRow.append(a);
+    }
+    links.append(linkRow);
+
     const actions = document.createElement('div');
     actions.className = 'stack';
 
@@ -736,8 +761,26 @@
     });
 
     actions.append(top, remove);
-    dialogBody.append(head, statusField, notesField, actions);
+    dialogBody.append(head, statusField, notesField, links, actions);
     dialog.showModal();
+  }
+
+  /* Links are built from the ISBN where there is one, since that names an
+     edition exactly; a title-and-author search is the fallback. */
+  function bookLinks(book) {
+    const isbn = book.isbn;
+    const query = encodeURIComponent(isbn || [book.title, (book.authors || [])[0]].filter(Boolean).join(' '));
+    const google = book.info && book.info.includes('google')
+      ? book.info
+      : (isbn ? `https://books.google.com/books?vid=ISBN${isbn}` : `https://www.google.com/search?tbm=bks&q=${query}`);
+    const openLibrary = book.info && book.info.includes('openlibrary')
+      ? book.info
+      : (isbn ? `https://openlibrary.org/isbn/${isbn}` : `https://openlibrary.org/search?q=${query}`);
+    return [
+      { label: 'Google Books', href: google },
+      { label: 'Open Library', href: openLibrary },
+      { label: 'Amazon', href: `https://www.amazon.co.uk/s?k=${query}` },
+    ];
   }
 
   function labelSpan(text) {
