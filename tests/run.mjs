@@ -432,6 +432,112 @@ await check('a throttled lookup succeeds on the retry', async () => {
   await ctx.close();
 });
 
+/* A stand-in for the Cloudflare Worker: one list held in memory. */
+function fakeWorker() {
+  const store = new Map();
+  const handle = (route) => {
+    const request = route.request();
+    const key = new URL(request.url()).pathname.split('/').pop();
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, body: '' });
+    if (request.method() === 'PUT') {
+      store.set(key, request.postData());
+      return route.fulfill(json({ ok: true, savedAt: Date.now() }));
+    }
+    const stored = store.get(key);
+    return stored
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: stored })
+      : route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"nothing stored yet"}' });
+  };
+  return { store, handle };
+}
+
+const SYNC_HOST = 'https://sync.example.test';
+
+async function turnSyncOn(page) {
+  await page.click('#backup-btn');
+  await page.fill('#sync-url', SYNC_HOST);
+  await page.click('#sync-connect');
+  await page.click('#backup-dialog button[type="submit"]');
+}
+
+await check('sync sends the list up whenever it changes', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 2);
+  await turnSyncOn(page);
+
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', 'for the train');
+  await page.click('#book-dialog button[type="submit"]');
+
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(1800);  // the push is debounced
+  assert.equal(worker.store.size, 1, 'the worker should be holding one list');
+  const sent = JSON.parse([...worker.store.values()][0]);
+  assert.equal(sent.books.length, 2);
+  assert.equal(sent.books[0].notes, 'for the train');
+  await ctx.close();
+});
+
+await check('another device picks the list up from the sync link', async () => {
+  const worker = fakeWorker();
+  const first = await newPage();
+  await first.ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(first.page, 3);
+  await turnSyncOn(first.page);
+  await first.page.waitForTimeout(1800);
+  assert.equal(worker.store.size, 1, 'the first device should have pushed');
+
+  // the link carries the address and the key; a second device needs nothing else
+  const link = await first.page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('reading-list.sync'));
+    return `#sync=${encodeURIComponent(s.url)}&key=${encodeURIComponent(s.key)}`;
+  });
+  await first.ctx.close();
+
+  const second = await newPage();
+  await second.ctx.route(/sync\.example\.test/, worker.handle);
+  await second.page.goto(BASE + link);
+  await second.page.waitForSelector('.book');
+  assert.deepEqual(await titles(second.page), ['One', 'Two', 'Three'], 'the list should arrive on the new device');
+  assert.equal(await second.page.evaluate(() => location.hash), '', 'the key should not be left in the address bar');
+  await second.ctx.close();
+});
+
+await check('a newer list from the cloud replaces an older one on the device', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 1);
+  await turnSyncOn(page);
+  await page.waitForTimeout(1800);
+
+  // something else edited the list later
+  const key = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.sync')).key);
+  worker.store.set(key, JSON.stringify({
+    version: 1,
+    changedAt: Date.now() + 60000,
+    books: [{ id: 'z', title: 'Added Elsewhere', authors: ['Someone'], status: 'toread', notes: '', isbn: '', cover: '' }],
+  }));
+
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('.book').length === 1
+    && document.querySelector('.book .title').textContent === 'Added Elsewhere');
+  await ctx.close();
+});
+
+await check('everything still works with sync switched off', async () => {
+  const { ctx, page, errors } = await newPage();
+  await seed(page, 2);
+  await page.locator('.book').last().locator('.up').click();
+  assert.deepEqual(await titles(page), ['Two', 'One']);
+  await page.reload();
+  assert.deepEqual(await titles(page), ['Two', 'One']);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check('exports and restores the list', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 2);

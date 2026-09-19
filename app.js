@@ -35,15 +35,20 @@
     }
   }
 
-  function save({ exported = false } = {}) {
-    const now = Date.now();
-    if (exported) exportedAt = now; else changedAt = now;
+  function write() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books, changedAt, exportedAt }));
     } catch (err) {
       setStatus(addStatus, 'Could not save — this browser is out of storage space.', true);
     }
     markBackupState();
+  }
+
+  function save({ exported = false } = {}) {
+    const now = Date.now();
+    if (exported) exportedAt = now; else changedAt = now;
+    write();
+    if (!exported) pushSoon();
   }
 
   /* The list lives only in this browser, so an un-exported list is one bad tap
@@ -58,6 +63,7 @@
 
   function describeBackupAge() {
     if (!books.length) return 'Nothing to back up yet.';
+    if (sync && exportedAt) return 'Sync is on, so the list saves itself. No need to export by hand.';
     if (!exportedAt) {
       return 'You have never exported this list. It exists only on this device \u2014 '
         + 'deleting the Home Screen icon or clearing Safari\u2019s data would take it with it.';
@@ -740,17 +746,180 @@
     return span;
   }
 
+  /* ------------------------------------------------------------------ sync */
+
+  const SYNC_KEY = 'reading-list.sync';
+  let sync = loadSync();
+  let pushTimer = null;
+  let syncState = '';   // what the last exchange with the worker did
+
+  function loadSync() {
+    try {
+      const raw = localStorage.getItem(SYNC_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed?.url && parsed?.key ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function saveSync(next) {
+    sync = next;
+    if (next) localStorage.setItem(SYNC_KEY, JSON.stringify(next));
+    else localStorage.removeItem(SYNC_KEY);
+  }
+
+  /* The key is the whole security model: long enough that it cannot be guessed,
+     and the only thing that says this list is yours. */
+  function newKey() {
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const listUrl = () => `${sync.url.replace(/\/+$/, '')}/list/${sync.key}`;
+
+  function setSyncState(text) {
+    syncState = text;
+    const el = document.getElementById('sync-state');
+    if (el) el.textContent = text;
+  }
+
+  /* Changes arrive a keystroke at a time; wait for the typing to stop. */
+  function pushSoon() {
+    if (!sync) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(push, 1200);
+  }
+
+  async function push() {
+    if (!sync) return;
+    try {
+      const res = await fetch(listUrl(), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 1, changedAt, books }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Saved somewhere other than this phone, which is what a backup is.
+      exportedAt = Date.now();
+      write();
+      setSyncState('Saved to the cloud just now.');
+    } catch (err) {
+      setSyncState('Could not reach your sync address — the list is still safe on this phone, and will go up next time.');
+    }
+  }
+
+  /* Last edit wins. Per-book merging would be better and is a great deal more
+     code; with one person and a phone, the newer list is the right one. */
+  async function pull() {
+    if (!sync) return;
+    try {
+      const res = await fetch(listUrl(), { headers: { Accept: 'application/json' } });
+      if (res.status === 404) {
+        if (books.length) await push();
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const remote = await res.json();
+      if (!Array.isArray(remote?.books)) throw new Error('unexpected reply');
+
+      const remoteChanged = remote.changedAt || 0;
+      // A list saved before this app tracked change times has no timestamp at
+      // all, so "both at zero" has to mean "take what the cloud has" whenever
+      // there is nothing here to lose. Otherwise a new phone stays empty.
+      const nothingHere = books.length === 0 && remote.books.length > 0;
+
+      if (remoteChanged > changedAt || nothingHere) {
+        books = remote.books.filter(isBook);
+        changedAt = remote.changedAt || Date.now();
+        exportedAt = Date.now();
+        write();
+        render();
+        setSyncState(`Brought ${books.length} book${books.length === 1 ? '' : 's'} down from the cloud.`);
+      } else if (changedAt > remoteChanged || books.length) {
+        await push();
+      } else {
+        setSyncState('Up to date with the cloud.');
+      }
+    } catch (err) {
+      setSyncState('Could not reach your sync address just now.');
+    }
+  }
+
+  function connectSync(rawUrl, key) {
+    const url = rawUrl.trim().replace(/\/+$/, '');
+    if (!/^https:\/\/[^\s]+$/.test(url)) {
+      setSyncState('That does not look like a web address — it should start with https://');
+      return false;
+    }
+    saveSync({ url, key: key || sync?.key || newKey() });
+    setSyncState('Connecting\u2026');
+    pull();
+    return true;
+  }
+
+  /* A link that sets another device up: it carries the address and the key,
+     which is exactly why it should not be posted anywhere public. */
+  function syncLink() {
+    const here = `${location.origin}${location.pathname}`;
+    return `${here}#sync=${encodeURIComponent(sync.url)}&key=${encodeURIComponent(sync.key)}`;
+  }
+
+  function adoptLinkFromHash() {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const url = hash.get('sync');
+    const key = hash.get('key');
+    if (!url || !key) return;
+    history.replaceState(null, '', location.pathname);  // keep it out of the address bar
+    connectSync(url, key);
+  }
+
   /* ---------------------------------------------------------------- backup */
 
   const backupDialog = document.getElementById('backup-dialog');
   const backupStatus = document.getElementById('backup-status');
   const backupAge = document.getElementById('backup-age');
 
+  const syncUrlInput = document.getElementById('sync-url');
+  const syncConnectBtn = document.getElementById('sync-connect');
+  const syncCopyBtn = document.getElementById('sync-copy');
+  const syncOffBtn = document.getElementById('sync-off');
+
+  function showSyncControls() {
+    const on = !!sync;
+    syncUrlInput.value = sync?.url || syncUrlInput.value;
+    syncConnectBtn.textContent = on ? 'Update sync address' : 'Turn sync on';
+    syncCopyBtn.hidden = !on;
+    syncOffBtn.hidden = !on;
+    setSyncState(syncState || (on ? 'Sync is on.' : 'Sync is off — this list is only on this device.'));
+  }
+
   backupBtn.addEventListener('click', () => {
     setStatus(backupStatus, '');
     backupAge.textContent = describeBackupAge();
     backupAge.classList.toggle('warn', needsBackup() || !exportedAt);
+    showSyncControls();
     backupDialog.showModal();
+  });
+
+  syncConnectBtn.addEventListener('click', () => {
+    if (connectSync(syncUrlInput.value)) showSyncControls();
+  });
+
+  syncCopyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(syncLink());
+      setSyncState('Link copied. Open it on the other device — and keep it to yourself, it is the key to this list.');
+    } catch (err) {
+      setSyncState(syncLink());
+    }
+  });
+
+  syncOffBtn.addEventListener('click', () => {
+    if (!confirm('Turn sync off? The list stays on this phone, but stops saving itself anywhere else.')) return;
+    saveSync(null);
+    syncState = '';
+    showSyncControls();
   });
 
   document.getElementById('export-btn').addEventListener('click', async () => {
@@ -819,6 +988,12 @@
      refuse, and it is no protection against the site's data being cleared by
      hand, but it costs nothing to ask. */
   navigator.storage?.persist?.().catch(() => { /* not supported here */ });
+
+  adoptLinkFromHash();
+  // Opening a sync link while the app is already open only changes the part
+  // after the #, which is not a fresh load — so watch for that too.
+  window.addEventListener('hashchange', adoptLinkFromHash);
+  pull();
 
   /* Books added while offline have no cover art yet — try again now, a few at
      a time so a long list doesn't fire off dozens of requests at once. */

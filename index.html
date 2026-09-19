@@ -78,6 +78,24 @@
         if the site's data is cleared, if you remove the Home Screen icon, or when you move to a new phone.</p>
       <p class="muted">On an iPhone the Home Screen app and the same page in Safari keep <strong>separate</strong>
         lists. Export from one and restore into the other to bring your books across.</p>
+      <section class="sync-block">
+        <h3>Sync</h3>
+        <p id="sync-state" class="status"></p>
+        <label class="field">
+          <span>Sync address</span>
+          <input id="sync-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off"
+                 placeholder="https://your-worker.workers.dev">
+        </label>
+        <div class="stack">
+          <button type="button" id="sync-connect">Turn sync on</button>
+          <button type="button" id="sync-copy" class="ghost" hidden>Copy link for another device</button>
+          <button type="button" id="sync-off" class="danger" hidden>Turn sync off</button>
+        </div>
+        <p class="muted">With sync on, the list saves itself after every change and comes back on any
+          device you open the link on. Setting it up is a one-off &mdash; see the README.</p>
+      </section>
+
+      <h3>Manual copy</h3>
       <div class="stack">
         <button type="button" id="export-btn">Export a copy&hellip;</button>
         <label class="file-btn">
