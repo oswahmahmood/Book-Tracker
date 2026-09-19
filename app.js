@@ -15,6 +15,9 @@
 
   /* ---------------------------------------------------------------- state */
 
+  // Declared before load(), which fills the two timestamps in as it reads.
+  let changedAt = 0;   // when the list last changed
+  let exportedAt = 0;  // when a copy was last saved off the device
   let books = load();
   let shelf = 'toread';
 
@@ -23,6 +26,8 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
+      changedAt = parsed?.changedAt || 0;
+      exportedAt = parsed?.exportedAt || 0;
       return Array.isArray(parsed?.books) ? parsed.books.filter(isBook) : [];
     } catch (err) {
       console.warn('Could not read saved list', err);
@@ -30,12 +35,44 @@
     }
   }
 
-  function save() {
+  function write() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books, changedAt, exportedAt }));
     } catch (err) {
       setStatus(addStatus, 'Could not save — this browser is out of storage space.', true);
     }
+    markBackupState();
+  }
+
+  function save({ exported = false } = {}) {
+    const now = Date.now();
+    if (exported) exportedAt = now; else changedAt = now;
+    write();
+    if (!exported) pushSoon();
+  }
+
+  /* The list lives only in this browser, so an un-exported list is one bad tap
+     from gone. Say so quietly but visibly. */
+  function needsBackup() {
+    return books.length > 0 && changedAt > exportedAt;
+  }
+
+  function markBackupState() {
+    backupBtn.classList.toggle('needs-backup', needsBackup());
+  }
+
+  function describeBackupAge() {
+    if (!books.length) return 'Nothing to back up yet.';
+    if (sync && exportedAt) return 'Sync is on, so the list saves itself. No need to export by hand.';
+    if (!exportedAt) {
+      return 'You have never exported this list. It exists only on this device \u2014 '
+        + 'deleting the Home Screen icon or clearing Safari\u2019s data would take it with it.';
+    }
+    const days = Math.floor((Date.now() - exportedAt) / 86400000);
+    const when = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+    return needsBackup()
+      ? `Last exported ${when}, and you have added or changed books since.`
+      : `Last exported ${when}. Nothing has changed since.`;
   }
 
   function isBook(b) { return b && typeof b === 'object' && typeof b.title === 'string'; }
@@ -69,17 +106,58 @@
 
   /* ------------------------------------------------------------ book APIs */
 
-  async function getJSON(url, ms = 9000) {
+  const serviceName = (url) => (url.includes('openlibrary.org') ? 'Open Library' : 'Google Books');
+
+  async function fetchJSON(url, ms) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ms);
     try {
       const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) {
+        // Keep the status: being turned away is a different problem from being
+        // unable to reach anything, and they need different advice.
+        throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, service: serviceName(url) });
+      }
       return await res.json();
+    } catch (err) {
+      err.service = err.service || serviceName(url);
+      throw err;
     } finally {
       clearTimeout(timer);
     }
   }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /* Neither service needs an API key, and the price of that is being throttled
+     when you look up a few books in a row. That is usually over in a second, so
+     take the hint and try once more rather than reporting failure. */
+  async function getJSON(url, ms = 9000) {
+    try {
+      return await fetchJSON(url, ms);
+    } catch (err) {
+      const worthRetrying = err.status === 429 || err.status >= 500;
+      if (!worthRetrying) throw err;
+      await wait(900);
+      return fetchJSON(url, ms);
+    }
+  }
+
+  /* Says what actually happened. "You may be offline" while the phone is plainly
+     online sends you hunting for a problem you do not have. */
+  function lookupFailure(errors) {
+    const refused = errors.filter((err) => err.status);
+    if (!refused.length || navigator.onLine === false) {
+      return 'Couldn\u2019t reach the book databases \u2014 you may be offline.';
+    }
+    const busy = refused.filter((err) => err.status === 429 || err.status >= 500);
+    const detail = refused.map((err) => `${err.service} ${err.status}`).join(', ');
+    return busy.length
+      ? `The book databases are busy and turned the request away (${detail}). Wait a moment and try again.`
+      : `The book databases refused the request (${detail}). The ISBN from the back cover may still work.`;
+  }
+
+  const failure = (errors) => Object.assign(new Error('lookup-failed'), { userMessage: lookupFailure(errors) });
 
   function googleCover(links) {
     const src = links?.thumbnail || links?.smallThumbnail;
@@ -98,6 +176,7 @@
       pages: data.number_of_pages || null,
       cover: data.cover?.large || data.cover?.medium
         || (isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false` : ''),
+      info: data.url || '',
       source: 'Open Library',
     };
   }
@@ -115,6 +194,7 @@
       year: (String(v.publishedDate || '').match(/\d{4}/) || [''])[0],
       pages: v.pageCount || null,
       cover: googleCover(v.imageLinks),
+      info: v.infoLink || v.canonicalVolumeLink || '',
       source: 'Google Books',
     };
   }
@@ -185,7 +265,7 @@
       if (data?.items?.length) return fromGoogle(data.items[0], isbn);
     } catch (err) { errors.push(err); }
 
-    if (errors.length === 2) throw new Error('offline');
+    if (errors.length === 2) throw failure(errors);
     return null;
   }
 
@@ -263,7 +343,9 @@
         .then((data) => (data?.items || []).map((item) => fromGoogle(item, ''))),
     ]);
 
-    if (openLibrary.status === 'rejected' && google.status === 'rejected') throw new Error('offline');
+    if (openLibrary.status === 'rejected' && google.status === 'rejected') {
+      throw failure([openLibrary.reason, google.reason]);
+    }
 
     const merged = mergeResults([openLibrary.value || [], google.value || []]);
     return rankResults(merged, query).slice(0, 12);
@@ -313,7 +395,21 @@
     node.querySelector('.author').textContent = (book.authors || []).join(', ') || 'Unknown author';
     node.querySelector('.sub').textContent = [book.year, book.pages ? `${book.pages} pp` : ''].filter(Boolean).join(' · ');
 
+    // Why you wanted it is the thing worth seeing at a glance, so it goes in
+    // the row; the rest of a long note stays in the detail sheet.
+    const note = node.querySelector('.note');
+    const written = (book.notes || '').trim();
+    note.textContent = written;
+    note.hidden = !written;
+
     node.querySelector('.open').addEventListener('click', () => openDetail(book.id));
+
+    // Tapping anywhere on the row opens it — the drag handle and the arrows do
+    // their own jobs, so they are left alone.
+    node.addEventListener('click', (event) => {
+      if (event.target.closest('.grip, .up, .down, .open')) return;
+      openDetail(book.id);
+    });
     node.querySelector('.up').addEventListener('click', () => nudge(book.id, -1));
     node.querySelector('.down').addEventListener('click', () => nudge(book.id, 1));
     node.querySelector('.grip').addEventListener('pointerdown', (e) => startDrag(e, node));
@@ -321,6 +417,14 @@
   }
 
   function byId(id) { return books.find((b) => b.id === id); }
+
+  function showNote(book) {
+    const note = listEl.querySelector(`[data-id="${book.id}"] .note`);
+    if (!note) return;
+    const written = (book.notes || '').trim();
+    note.textContent = written;
+    note.hidden = !written;
+  }
 
   /* Rewrite the global array so the books on this shelf take the order given,
      leaving books on other shelves where they are. */
@@ -398,6 +502,7 @@
 
   /* ---------------------------------------------------------------- adding */
 
+  const backupBtn = document.getElementById('backup-btn');
   const form = document.getElementById('add-form');
   const queryInput = document.getElementById('query');
   const addBtn = document.getElementById('add-btn');
@@ -474,9 +579,7 @@
         setStatus(addStatus, '');
       }
     } catch (err) {
-      setStatus(addStatus, err.message === 'offline'
-        ? 'Couldn’t reach the book databases — you may be offline.'
-        : 'Lookup failed. Try again in a moment.', true);
+      setStatus(addStatus, err.userMessage || 'Lookup failed. Try again in a moment.', true);
     } finally {
       addBtn.disabled = false;
     }
@@ -555,6 +658,10 @@
   const dialogBody = document.getElementById('dialog-body');
   const dialogTitle = document.getElementById('dialog-title');
 
+  // Notes save as they are typed; the row behind the sheet shows them, so it
+  // needs redrawing once the sheet is out of the way.
+  dialog.addEventListener('close', () => render());
+
   function openDetail(id) {
     const book = byId(id);
     if (!book) return;
@@ -609,8 +716,28 @@
     const notes = document.createElement('textarea');
     notes.rows = 3;
     notes.value = book.notes || '';
-    notes.addEventListener('input', () => { book.notes = notes.value; save(); });
+    notes.addEventListener('input', () => {
+      book.notes = notes.value;
+      save();
+      showNote(book);  // the row behind the sheet keeps up as you type
+    });
     notesField.append(notes);
+
+    const links = document.createElement('div');
+    links.className = 'field';
+    links.append(labelSpan('Read more about it'));
+    const linkRow = document.createElement('div');
+    linkRow.className = 'links';
+    for (const { label, href } of bookLinks(book)) {
+      const a = document.createElement('a');
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'book-link';
+      a.textContent = label;
+      linkRow.append(a);
+    }
+    links.append(linkRow);
 
     const actions = document.createElement('div');
     actions.className = 'stack';
@@ -634,8 +761,26 @@
     });
 
     actions.append(top, remove);
-    dialogBody.append(head, statusField, notesField, actions);
+    dialogBody.append(head, statusField, notesField, links, actions);
     dialog.showModal();
+  }
+
+  /* Links are built from the ISBN where there is one, since that names an
+     edition exactly; a title-and-author search is the fallback. */
+  function bookLinks(book) {
+    const isbn = book.isbn;
+    const query = encodeURIComponent(isbn || [book.title, (book.authors || [])[0]].filter(Boolean).join(' '));
+    const google = book.info && book.info.includes('google')
+      ? book.info
+      : (isbn ? `https://books.google.com/books?vid=ISBN${isbn}` : `https://www.google.com/search?tbm=bks&q=${query}`);
+    const openLibrary = book.info && book.info.includes('openlibrary')
+      ? book.info
+      : (isbn ? `https://openlibrary.org/isbn/${isbn}` : `https://openlibrary.org/search?q=${query}`);
+    return [
+      { label: 'Google Books', href: google },
+      { label: 'Open Library', href: openLibrary },
+      { label: 'Amazon', href: `https://www.amazon.co.uk/s?k=${query}` },
+    ];
   }
 
   function labelSpan(text) {
@@ -644,14 +789,180 @@
     return span;
   }
 
+  /* ------------------------------------------------------------------ sync */
+
+  const SYNC_KEY = 'reading-list.sync';
+  let sync = loadSync();
+  let pushTimer = null;
+  let syncState = '';   // what the last exchange with the worker did
+
+  function loadSync() {
+    try {
+      const raw = localStorage.getItem(SYNC_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed?.url && parsed?.key ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function saveSync(next) {
+    sync = next;
+    if (next) localStorage.setItem(SYNC_KEY, JSON.stringify(next));
+    else localStorage.removeItem(SYNC_KEY);
+  }
+
+  /* The key is the whole security model: long enough that it cannot be guessed,
+     and the only thing that says this list is yours. */
+  function newKey() {
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const listUrl = () => `${sync.url.replace(/\/+$/, '')}/list/${sync.key}`;
+
+  function setSyncState(text) {
+    syncState = text;
+    const el = document.getElementById('sync-state');
+    if (el) el.textContent = text;
+  }
+
+  /* Changes arrive a keystroke at a time; wait for the typing to stop. */
+  function pushSoon() {
+    if (!sync) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(push, 1200);
+  }
+
+  async function push() {
+    if (!sync) return;
+    try {
+      const res = await fetch(listUrl(), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 1, changedAt, books }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Saved somewhere other than this phone, which is what a backup is.
+      exportedAt = Date.now();
+      write();
+      setSyncState('Saved to the cloud just now.');
+    } catch (err) {
+      setSyncState('Could not reach your sync address — the list is still safe on this phone, and will go up next time.');
+    }
+  }
+
+  /* Last edit wins. Per-book merging would be better and is a great deal more
+     code; with one person and a phone, the newer list is the right one. */
+  async function pull() {
+    if (!sync) return;
+    try {
+      const res = await fetch(listUrl(), { headers: { Accept: 'application/json' } });
+      if (res.status === 404) {
+        if (books.length) await push();
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const remote = await res.json();
+      if (!Array.isArray(remote?.books)) throw new Error('unexpected reply');
+
+      const remoteChanged = remote.changedAt || 0;
+      // A list saved before this app tracked change times has no timestamp at
+      // all, so "both at zero" has to mean "take what the cloud has" whenever
+      // there is nothing here to lose. Otherwise a new phone stays empty.
+      const nothingHere = books.length === 0 && remote.books.length > 0;
+
+      if (remoteChanged > changedAt || nothingHere) {
+        books = remote.books.filter(isBook);
+        changedAt = remote.changedAt || Date.now();
+        exportedAt = Date.now();
+        write();
+        render();
+        setSyncState(`Brought ${books.length} book${books.length === 1 ? '' : 's'} down from the cloud.`);
+      } else if (changedAt > remoteChanged || books.length) {
+        await push();
+      } else {
+        setSyncState('Up to date with the cloud.');
+      }
+    } catch (err) {
+      setSyncState('Could not reach your sync address just now.');
+    }
+  }
+
+  function connectSync(rawUrl, key) {
+    const url = rawUrl.trim().replace(/\/+$/, '');
+    if (!/^https:\/\/[^\s]+$/.test(url)) {
+      setSyncState('That does not look like a web address — it should start with https://');
+      return false;
+    }
+    saveSync({ url, key: key || sync?.key || newKey() });
+    setSyncState('Connecting\u2026');
+    pull();
+    return true;
+  }
+
+  /* A link that sets another device up: it carries the address and the key,
+     which is exactly why it should not be posted anywhere public. */
+  function syncLink() {
+    const here = `${location.origin}${location.pathname}`;
+    return `${here}#sync=${encodeURIComponent(sync.url)}&key=${encodeURIComponent(sync.key)}`;
+  }
+
+  function adoptLinkFromHash() {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const url = hash.get('sync');
+    const key = hash.get('key');
+    if (!url || !key) return;
+    history.replaceState(null, '', location.pathname);  // keep it out of the address bar
+    connectSync(url, key);
+  }
+
   /* ---------------------------------------------------------------- backup */
 
   const backupDialog = document.getElementById('backup-dialog');
   const backupStatus = document.getElementById('backup-status');
+  const backupAge = document.getElementById('backup-age');
 
-  document.getElementById('backup-btn').addEventListener('click', () => {
+  const syncUrlInput = document.getElementById('sync-url');
+  const syncConnectBtn = document.getElementById('sync-connect');
+  const syncCopyBtn = document.getElementById('sync-copy');
+  const syncOffBtn = document.getElementById('sync-off');
+
+  function showSyncControls() {
+    const on = !!sync;
+    syncUrlInput.value = sync?.url || syncUrlInput.value;
+    syncConnectBtn.textContent = on ? 'Update sync address' : 'Turn sync on';
+    syncCopyBtn.hidden = !on;
+    syncOffBtn.hidden = !on;
+    setSyncState(syncState || (on ? 'Sync is on.' : 'Sync is off — this list is only on this device.'));
+  }
+
+  backupBtn.addEventListener('click', () => {
     setStatus(backupStatus, '');
+    backupAge.textContent = describeBackupAge();
+    backupAge.classList.toggle('warn', needsBackup() || !exportedAt);
+    showSyncControls();
     backupDialog.showModal();
+  });
+
+  syncConnectBtn.addEventListener('click', () => {
+    if (connectSync(syncUrlInput.value)) showSyncControls();
+  });
+
+  syncCopyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(syncLink());
+      setSyncState('Link copied. Open it on the other device — and keep it to yourself, it is the key to this list.');
+    } catch (err) {
+      setSyncState(syncLink());
+    }
+  });
+
+  syncOffBtn.addEventListener('click', () => {
+    if (!confirm('Turn sync off? The list stays on this phone, but stops saving itself anywhere else.')) return;
+    saveSync(null);
+    syncState = '';
+    showSyncControls();
   });
 
   document.getElementById('export-btn').addEventListener('click', async () => {
@@ -664,6 +975,9 @@
     if (navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: 'Reading list backup' });
+        save({ exported: true });
+        backupAge.textContent = describeBackupAge();
+        backupAge.classList.remove('warn');
         return;
       } catch (err) {
         if (err.name === 'AbortError') return;
@@ -675,6 +989,9 @@
     a.download = file.name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    save({ exported: true });
+    backupAge.textContent = describeBackupAge();
+    backupAge.classList.remove('warn');
     setStatus(backupStatus, `Saved ${file.name}.`);
   });
 
@@ -708,6 +1025,18 @@
 
   syncShelfButtons();
   render();
+  markBackupState();
+
+  /* Ask the browser not to evict this list when it is short of space. It may
+     refuse, and it is no protection against the site's data being cleared by
+     hand, but it costs nothing to ask. */
+  navigator.storage?.persist?.().catch(() => { /* not supported here */ });
+
+  adoptLinkFromHash();
+  // Opening a sync link while the app is already open only changes the part
+  // after the #, which is not a fresh load — so watch for that too.
+  window.addEventListener('hashchange', adoptLinkFromHash);
+  pull();
 
   /* Books added while offline have no cover art yet — try again now, a few at
      a time so a long list doesn't fire off dozens of requests at once. */

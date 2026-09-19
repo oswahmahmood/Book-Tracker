@@ -34,7 +34,11 @@ the other route.
    iOS can't install to the Home Screen).
 5. **Share → Add to Home Screen.** Done. Tap the icon and it opens standalone.
 
-Anything pushed to `main` afterwards updates the app the next time you open it.
+Anything pushed to `main` afterwards updates the app the next time you open
+it: the app's own files are fetched from the network first and only fall back
+to the cached copy when there is no connection. (Cache-first would be a hair
+faster and would pin the phone to whichever copy it saw first — no update could
+ever land. It did exactly that once.)
 
 No prompts, banners or permission requests come with any of this: the app asks
 for nothing — no notifications, no camera, no location — and iOS has no install
@@ -115,12 +119,66 @@ digit is caught immediately rather than coming back as "not found".
 The list lives in this browser's `localStorage`, under the key
 `reading-list.v1`. It is never sent anywhere.
 
-That also means it can be lost — clearing Safari's website data wipes it, and
-iOS can evict storage for sites you haven't opened in a while (adding the app
-to the Home Screen makes that much less likely, but isn't a guarantee). So:
+The app asks the browser to treat that storage as persistent, which keeps iOS
+from evicting it when the phone is short of space. What no browser storage
+survives is deliberate removal — clearing Safari's website data, or deleting
+the Home Screen icon, which takes the installed app's storage with it. Turn on
+sync (above) to be covered for that, or:
 **Backup → Export a copy** now and then. On iPhone that opens the share sheet,
 so you can drop the JSON file into Files or iCloud Drive. *Restore from a file*
 reads it back and skips anything already on the list.
+
+## Sync (optional)
+
+Without sync, the list lives only in the browser you added the books in, and
+that is fine until the phone isn't: deleting the Home Screen icon, clearing
+Safari's data, or losing the handset takes the list with it.
+
+Turning sync on gives the list somewhere else to live. It then saves itself
+about a second after every change and is fetched whenever the app opens, so a
+new phone, a reinstall, or a second device picks up where the last one left
+off. It is off until you enter an address.
+
+### Setting it up, once
+
+All of this is done in a browser — no terminal, no payment card. The free tier
+is far larger than one reading list will ever need.
+
+1. Make a free account at [cloudflare.com](https://dash.cloudflare.com/sign-up).
+2. In the dashboard, go to **Storage & Databases → KV** and create a namespace
+   called `LISTS`.
+3. Go to **Compute (Workers) → Create → Start with Hello World**, name it
+   something like `reading-list-sync`, and deploy it.
+4. Open the new Worker → **Edit code**, delete what's there, and paste in the
+   contents of [`worker/sync-worker.js`](worker/sync-worker.js). Deploy.
+5. Worker → **Settings → Bindings → Add → KV namespace**. Variable name
+   `LISTS`, and pick the namespace from step 2. Deploy once more.
+6. Copy the Worker's address (it looks like
+   `https://reading-list-sync.your-name.workers.dev`).
+7. In the app: **Backup → Sync → Sync address**, paste it in, **Turn sync on**.
+
+Optionally set an `ALLOWED_ORIGIN` variable on the Worker (same Bindings
+screen, as a plain text variable) to your app's address, so only the app's own
+pages may call it.
+
+### What you are trusting
+
+There are no accounts and no passwords. The app generates a long random key for
+itself, your list is stored under that key, and **holding the key is what grants
+access** — so "Copy link for another device" produces something worth treating
+like a password. Anyone with it can read or change the list; nobody without it
+can find it. For a list of books that seemed a better trade than a sign-in, but
+it is a deliberate trade rather than an oversight.
+
+The data sits in your own Cloudflare account. Nothing goes anywhere else.
+
+### How conflicts resolve
+
+Newer wins, judged per list rather than per book — per-book merging is a great
+deal more code for one person and a phone. In practice that means: edit on one
+device, open the other, and the newer list replaces the older one. A device
+with nothing on it always takes what the cloud holds, so a fresh phone fills
+itself rather than uploading its emptiness.
 
 ## Files
 
@@ -129,11 +187,12 @@ reads it back and skips anything already on the list.
 | `index.html` | Markup and the row/dialog templates |
 | `app.css` | Styles — one blush palette, in light mode whatever the phone is set to |
 | `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
-| `sw.js` | Service worker — caches the app shell and cover images for offline use |
+| `sw.js` | Service worker — network-first for the app itself, cache-first for covers |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
 | `tools/make-icons.py` | Regenerates `icons/` — no image libraries needed |
 | `tests/run.mjs` | The end-to-end suite |
 | `tests/smoke.mjs` | The live check against the real book services |
+| `worker/sync-worker.js` | The optional Cloudflare Worker that holds a synced list |
 
 ## If you want a real native app
 

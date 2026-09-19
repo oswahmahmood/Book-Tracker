@@ -110,6 +110,18 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .shelf.is-active:hover { color: var(--accent-ink); border-color: var(--accent); }
 .count { opacity: .65; font-variant-numeric: tabular-nums; }
 
+.links { display: flex; gap: 8px; flex-wrap: wrap; }
+.book-link {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: .85rem;
+}
+.book-link:hover { border-color: var(--accent); background: var(--accent-soft); }
+
 .book-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 
 .book {
@@ -123,6 +135,7 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   touch-action: pan-y;
+  cursor: pointer;
 }
 .book.dragging { opacity: .9; box-shadow: 0 14px 30px rgba(0, 0, 0, .25); transform: scale(1.015); border-color: var(--accent); }
 
@@ -184,7 +197,17 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .title { font-weight: 600; line-height: 1.25; letter-spacing: -.005em; }
 .author { font-size: .85rem; color: var(--muted); }
 .sub { font-size: .75rem; color: var(--muted); }
-.title, .author, .sub { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.note {
+  font-size: .8rem;
+  line-height: 1.35;
+  color: var(--ink);
+  opacity: .85;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent-soft);
+}
+.title, .author, .sub, .note { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.note[hidden] { display: none; }
 
 .row-actions { display: flex; flex-direction: column; gap: 4px; align-self: center; }
 .row-actions button {
@@ -223,6 +246,24 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .result img { width: 40px; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; background: var(--accent-soft); }
 
 .results-hint { margin: 12px 4px 0; }
+
+/* A list that has never been exported is one bad tap from gone. */
+#backup-btn.needs-backup { position: relative; border-color: var(--accent); color: var(--accent); }
+#backup-btn.needs-backup::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.sync-block { border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.sheet-body h3 { margin: 0 0 8px; font-size: .95rem; }
+.sync-block .field { margin: 8px 0; }
+.backup-age { margin: 0; font-size: .9rem; color: var(--muted); }
+.backup-age.warn { color: var(--accent); font-weight: 500; }
 
 .sheet {
   border: 0;

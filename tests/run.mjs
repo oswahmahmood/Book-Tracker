@@ -62,7 +62,8 @@ async function check(name, fn) {
     await fn();
     results.push(`  ok   ${name}`);
   } catch (err) {
-    results.push(`  FAIL ${name}\n       ${err.message.split('\n')[0]}`);
+    const detail = err.message.split('\n').filter(Boolean).slice(0, 5).join('\n       ');
+    results.push(`  FAIL ${name}\n       ${detail}`);
     process.exitCode = 1;
   }
 }
@@ -90,6 +91,16 @@ async function addIsbn(page, isbn = ISBN) {
   await page.fill('#query', isbn);
   await page.click('#add-btn');
 }
+
+await check('starts cleanly when a list is already saved', async () => {
+  // A fresh browser exercises none of the loading path, so this failure mode
+  // only shows up for someone who already has books — that is, the actual user.
+  const { ctx, page, errors } = await newPage();
+  await seed(page, 3);
+  assert.deepEqual(await titles(page), ['One', 'Two', 'Three']);
+  assert.deepEqual(errors, [], 'nothing should throw while reading a saved list');
+  await ctx.close();
+});
 
 await check('adds a book from its ISBN', async () => {
   const { ctx, page, errors } = await newPage();
@@ -156,6 +167,84 @@ await check('reorders by dragging the handle, and the order survives a reload', 
   await page.reload();
   await page.waitForSelector('.book');
   assert.deepEqual(await titles(page), ['Three', 'One', 'Two']);
+  await ctx.close();
+});
+
+await check('shows the note in the row, and nothing when there is none', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 2);
+  assert.equal(await page.locator('.book .note').first().isHidden(), true, 'no note, no line');
+
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', 'Ada keeps quoting it at me');
+  await page.click('#book-dialog button[type="submit"]');
+  await page.waitForFunction(
+    (text) => document.querySelector('.book .note')?.textContent === text,
+    'Ada keeps quoting it at me');
+  assert.equal(await page.locator('.book .note').nth(1).isHidden(), true);
+
+  // a long note is clamped in the row but kept whole in the sheet
+  const essay = 'Because '.repeat(40).trim();
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', essay);
+  await page.click('#book-dialog button[type="submit"]');
+  const row = await page.locator('.book .note').first().boundingBox();
+  assert.ok(row.height < 44, `the row note should stay short, was ${row.height}px`);
+  await page.locator('.book').first().locator('.open').click();
+  assert.equal(await page.inputValue('#book-dialog textarea'), essay, 'the sheet keeps all of it');
+  await ctx.close();
+});
+
+await check('tapping anywhere on a book opens it, except the controls', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 2);
+
+  // the cover, the title, the empty space — all of it
+  for (const spot of ['.cover-wrap', '.title', '.meta']) {
+    await page.locator('.book').first().locator(spot).click();
+    assert.equal(await page.locator('#book-dialog').isVisible(), true, `${spot} should open the book`);
+    await page.click('#book-dialog button[type="submit"]');
+  }
+
+  // the drag handle and the arrows still do their own jobs
+  await page.locator('.book').first().locator('.grip').click();
+  assert.equal(await page.locator('#book-dialog').isVisible(), false, 'the drag handle must not open the sheet');
+  await page.locator('.book').last().locator('.up').click();
+  assert.equal(await page.locator('#book-dialog').isVisible(), false, 'the arrows must not open the sheet');
+  assert.deepEqual(await titles(page), ['Two', 'One'], 'the arrow should still have reordered');
+  await ctx.close();
+});
+
+await check('a book links out to where you can read more', async () => {
+  const { ctx, page } = await newPage();
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  await page.locator('.book .title').click();
+
+  const links = await page.locator('#book-dialog .book-link').evaluateAll((els) =>
+    els.map((el) => ({ label: el.textContent, href: el.href, target: el.target, rel: el.rel })));
+  assert.equal(links.length, 3);
+  assert.deepEqual(links.map((l) => l.label), ['Google Books', 'Open Library', 'Amazon']);
+  for (const link of links) {
+    assert.match(link.href, new RegExp(ISBN), `${link.label} should point at the ISBN: ${link.href}`);
+    assert.equal(link.target, '_blank');
+    assert.match(link.rel, /noopener/);
+  }
+  await ctx.close();
+});
+
+await check('a book with no ISBN still links out, by title and author', async () => {
+  const { ctx, page } = await newPage();
+  await page.fill('#query', 'the good immigrant');
+  await page.click('#add-btn');
+  await page.waitForSelector('#results:not([hidden]) .result');
+  await page.locator('#results .result').first().click();
+  await page.waitForSelector('.book');
+  await page.locator('.book .title').click();
+  const hrefs = await page.locator('#book-dialog .book-link').evaluateAll((els) => els.map((el) => el.href));
+  for (const href of hrefs) {
+    assert.match(href.toLowerCase(), /immigrant/, `expected a title search, got ${href}`);
+  }
   await ctx.close();
 });
 
@@ -360,6 +449,148 @@ await check('gives the same offline message when a title search cannot reach any
   await ctx.close();
 });
 
+await check('says the services are busy, not that you are offline, when throttled', async () => {
+  let attempts = 0;
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+  await ctx.route(/openlibrary\.org/, (r) => { attempts++; r.fulfill({ status: 429, body: 'slow down' }); });
+  await ctx.route(/googleapis\.com/, (r) => { attempts++; r.fulfill({ status: 429, body: 'slow down' }); });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.fill('#query', 'the good immigrant');
+  await page.click('#add-btn');
+  await page.waitForSelector('#add-status.error');
+  const message = await page.textContent('#add-status');
+  assert.match(message, /busy/, `expected a "busy" message, got: ${message}`);
+  assert.doesNotMatch(message, /offline/, 'the phone is online — do not blame the connection');
+  assert.match(message, /429/);
+  assert.ok(attempts >= 4, `each service should be retried once before giving up, saw ${attempts} calls`);
+  await ctx.close();
+});
+
+await check('a throttled lookup succeeds on the retry', async () => {
+  let first = true;
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+  await ctx.route(/openlibrary\.org\/api\/books/, (r) => {
+    if (first) { first = false; return r.fulfill({ status: 429, body: 'slow down' }); }
+    return r.fulfill(json(olRecord(true)));
+  });
+  await ctx.route(/covers\.openlibrary\.org\//, (r) => r.fulfill(image()));
+  await ctx.route(/googleapis\.com/, (r) => r.fulfill(json({ items: [] })));
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.fill('#query', ISBN);
+  await page.click('#add-btn');
+  await page.waitForSelector('.book');
+  assert.deepEqual(await titles(page), ['Piranesi']);
+  await ctx.close();
+});
+
+/* A stand-in for the Cloudflare Worker: one list held in memory. */
+function fakeWorker() {
+  const store = new Map();
+  const handle = (route) => {
+    const request = route.request();
+    const key = new URL(request.url()).pathname.split('/').pop();
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, body: '' });
+    if (request.method() === 'PUT') {
+      store.set(key, request.postData());
+      return route.fulfill(json({ ok: true, savedAt: Date.now() }));
+    }
+    const stored = store.get(key);
+    return stored
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: stored })
+      : route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"nothing stored yet"}' });
+  };
+  return { store, handle };
+}
+
+const SYNC_HOST = 'https://sync.example.test';
+
+async function turnSyncOn(page) {
+  await page.click('#backup-btn');
+  await page.fill('#sync-url', SYNC_HOST);
+  await page.click('#sync-connect');
+  await page.click('#backup-dialog button[type="submit"]');
+}
+
+await check('sync sends the list up whenever it changes', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 2);
+  await turnSyncOn(page);
+
+  await page.locator('.book').first().locator('.open').click();
+  await page.fill('#book-dialog textarea', 'for the train');
+  await page.click('#book-dialog button[type="submit"]');
+
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(1800);  // the push is debounced
+  assert.equal(worker.store.size, 1, 'the worker should be holding one list');
+  const sent = JSON.parse([...worker.store.values()][0]);
+  assert.equal(sent.books.length, 2);
+  assert.equal(sent.books[0].notes, 'for the train');
+  await ctx.close();
+});
+
+await check('another device picks the list up from the sync link', async () => {
+  const worker = fakeWorker();
+  const first = await newPage();
+  await first.ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(first.page, 3);
+  await turnSyncOn(first.page);
+  await first.page.waitForTimeout(1800);
+  assert.equal(worker.store.size, 1, 'the first device should have pushed');
+
+  // the link carries the address and the key; a second device needs nothing else
+  const link = await first.page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('reading-list.sync'));
+    return `#sync=${encodeURIComponent(s.url)}&key=${encodeURIComponent(s.key)}`;
+  });
+  await first.ctx.close();
+
+  const second = await newPage();
+  await second.ctx.route(/sync\.example\.test/, worker.handle);
+  await second.page.goto(BASE + link);
+  await second.page.waitForSelector('.book');
+  assert.deepEqual(await titles(second.page), ['One', 'Two', 'Three'], 'the list should arrive on the new device');
+  assert.equal(await second.page.evaluate(() => location.hash), '', 'the key should not be left in the address bar');
+  await second.ctx.close();
+});
+
+await check('a newer list from the cloud replaces an older one on the device', async () => {
+  const worker = fakeWorker();
+  const { ctx, page } = await newPage();
+  await ctx.route(/sync\.example\.test/, worker.handle);
+  await seed(page, 1);
+  await turnSyncOn(page);
+  await page.waitForTimeout(1800);
+
+  // something else edited the list later
+  const key = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.sync')).key);
+  worker.store.set(key, JSON.stringify({
+    version: 1,
+    changedAt: Date.now() + 60000,
+    books: [{ id: 'z', title: 'Added Elsewhere', authors: ['Someone'], status: 'toread', notes: '', isbn: '', cover: '' }],
+  }));
+
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('.book').length === 1
+    && document.querySelector('.book .title').textContent === 'Added Elsewhere');
+  await ctx.close();
+});
+
+await check('everything still works with sync switched off', async () => {
+  const { ctx, page, errors } = await newPage();
+  await seed(page, 2);
+  await page.locator('.book').last().locator('.up').click();
+  assert.deepEqual(await titles(page), ['Two', 'One']);
+  await page.reload();
+  assert.deepEqual(await titles(page), ['Two', 'One']);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check('exports and restores the list', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 2);
@@ -373,6 +604,26 @@ await check('exports and restores the list', async () => {
   assert.match(await page.textContent('#backup-status'), /Restored 2 books/);
   await page.click('#backup-dialog button[type="submit"]');
   assert.deepEqual(await titles(page), ['One', 'Two']);
+  await ctx.close();
+});
+
+await check('picks up a new version instead of serving its cached copy forever', async () => {
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true,
+    'the service worker should be in charge before this means anything');
+
+  // Stand in for a deploy: the server now holds different CSS.
+  await ctx.route(/app\.css$/, (r) => r.fulfill({
+    status: 200, contentType: 'text/css', body: 'body { background: rgb(1, 2, 3); }',
+  }));
+  await page.reload();
+  const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  assert.equal(background, 'rgb(1, 2, 3)',
+    'a cache-first worker would keep serving the old stylesheet and never update');
   await ctx.close();
 });
 
