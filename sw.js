@@ -87,7 +87,11 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     try {
-      const res = await fetch(request);
+      // 'no-cache' revalidates with the server rather than trusting the
+      // browser's own copy, which GitHub Pages lets it hold for ten minutes.
+      // Unchanged files come back as a cheap 304; a new version arrives at
+      // once instead of whenever that ten minutes happens to lapse.
+      const res = await fetch(request, { cache: 'no-cache' });
       if (res.ok) {
         const cache = await caches.open(SHELL);
         await cache.put(request, res.clone());
