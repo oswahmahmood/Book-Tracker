@@ -31,7 +31,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    const stale = keys.filter((k) => k !== SHELL && k !== COVERS);
+    // Cache Storage is per origin, and on a github.io account that origin is
+    // shared with every other project published there. Only ever touch ours.
+    const stale = keys.filter((k) => k.startsWith('reading-list-') && k !== SHELL && k !== COVERS);
     await Promise.all(stale.map((k) => caches.delete(k)));
     await self.clients.claim();
 
@@ -64,11 +66,17 @@ self.addEventListener('fetch', (event) => {
       const hit = await cache.match(request);
       if (hit) return hit;
       const res = await fetch(request);
-      // Cover images are fetched no-cors, so the response is opaque and some
-      // browsers refuse to store it. Failing to cache must never fail the image.
-      try {
-        await cache.put(request, res.clone());
-      } catch (err) { /* not cacheable — serve it from the network each time */ }
+      // Cover images are fetched no-cors, so a success is indistinguishable
+      // from a 404 — both arrive opaque. What can be told apart is a visible
+      // error, and that must not be stored: a cached 404 is a cover that stays
+      // broken for ever. (The app double-checks covers load, and forgets the
+      // ones that do not.)
+      const worthKeeping = res.ok || res.type === 'opaque';
+      if (worthKeeping) {
+        try {
+          await cache.put(request, res.clone());
+        } catch (err) { /* not cacheable — serve it from the network each time */ }
+      }
       return res;
     })());
     return;
