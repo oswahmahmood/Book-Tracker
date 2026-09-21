@@ -13,16 +13,44 @@
      kind of thing from the one you will pick up next, it is just first. */
   const VIEWS = {
     unfinished: ['reading', 'toread'],
+    rereads: null,   // not a status: a book in the rotation can be on any shelf
     read: ['read'],
   };
   const EMPTY_COPY = {
     unfinished: 'Nothing here yet. Add a book by its ISBN — the 13 digits under the barcode.',
+    rereads: 'Nothing in the rotation. Open a book you love and turn on "read this again every so often".',
     read: 'Books you finish will collect here.',
   };
+
+  const A_YEAR = 365.25 * 24 * 60 * 60 * 1000;
+  const today = () => new Date().toISOString().slice(0, 10);
+  const lastReadAt = (book) => (book.finishedAt ? Date.parse(book.finishedAt) : NaN);
+
+  /* Due when the cycle has elapsed since it was last finished — and a book put
+     in the rotation without a date is due now, since there is nothing saying
+     otherwise. */
+  function dueAgain(book, now = Date.now()) {
+    if (!book.reread) return false;
+    const last = lastReadAt(book);
+    return Number.isNaN(last) || now - last >= rereadYears * A_YEAR;
+  }
+
+  function describeWhen(book) {
+    const last = lastReadAt(book);
+    if (Number.isNaN(last)) return 'Not logged as read yet — due now';
+    const when = new Date(last).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const months = Math.round((rereadYears * A_YEAR - (Date.now() - last)) / (A_YEAR / 12));
+    if (months <= 0) return `Last read ${when} · due now`;
+    if (months === 1) return `Last read ${when} · due next month`;
+    if (months < 12) return `Last read ${when} · due in ${months} months`;
+    const years = Math.round(months / 12);
+    return `Last read ${when} · due in ${years === 1 ? 'a year' : `${years} years`}`;
+  }
 
   /* ---------------------------------------------------------------- state */
 
   // Declared before load(), which fills the two timestamps in as it reads.
+  let rereadYears = 2; // one cycle for every book in the rotation
   let changedAt = 0;   // when the list last changed
   let exportedAt = 0;  // when a copy was last saved off the device
   let books = load();
@@ -33,6 +61,7 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
+      rereadYears = Number(parsed?.rereadYears) || 2;
       changedAt = parsed?.changedAt || 0;
       exportedAt = parsed?.exportedAt || 0;
       return Array.isArray(parsed?.books) ? parsed.books.filter(isBook) : [];
@@ -44,7 +73,7 @@
 
   function write() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books, changedAt, exportedAt }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, books, rereadYears, changedAt, exportedAt }));
     } catch (err) {
       setStatus(addStatus, 'Could not save — this browser is out of storage space.', true);
     }
@@ -371,6 +400,19 @@
   /* The order within each status is the order you set; the statuses themselves
      are ranked, so reading always sits above to-read. */
   function visible() {
+    if (view === 'rereads') {
+      // Longest unread first — whatever has been neglected most is the top.
+      return books
+        .filter((b) => b.reread)
+        .sort((a, b) => {
+          const left = lastReadAt(a);
+          const right = lastReadAt(b);
+          if (Number.isNaN(left) && Number.isNaN(right)) return 0;
+          if (Number.isNaN(left)) return -1;
+          if (Number.isNaN(right)) return 1;
+          return left - right;
+        });
+    }
     const wanted = VIEWS[view];
     return books
       .filter((b) => wanted.includes(b.status))
@@ -387,31 +429,47 @@
     if (view === 'unfinished') {
       const reading = rows.filter((b) => b.status === 'reading');
       const queue = rows.filter((b) => b.status === 'toread');
+      /* Books in the rotation are not on this shelf — they have been read —
+         but once they come round again they are as pickable as anything else,
+         so they surface here rather than waiting to be looked for. */
+      const due = books
+        .filter((b) => b.status === 'read' && dueAgain(b))
+        .sort((a, b) => (lastReadAt(a) || 0) - (lastReadAt(b) || 0));
 
       if (reading.length) {
-        listEl.append(groupHeading(reading.length === 1 ? 'Reading now' : 'Reading now', 'reading'));
+        listEl.append(groupHeading('Reading now', 'reading'));
         for (const book of reading) listEl.append(renderBook(book));
       }
       if (queue.length) {
         listEl.append(groupHeading('Next up', 'next'));
         listEl.append(renderBook(queue[0]));
-        if (queue.length > 1) {
-          listEl.append(groupHeading(`Then — ${queue.length - 1} more`, 'later'));
-          for (const book of queue.slice(1)) listEl.append(renderBook(book));
-        }
       }
+      if (due.length) {
+        listEl.append(groupHeading(`Due again — ${due.length}`, 'due'));
+        for (const book of due) listEl.append(renderBook(book, { showWhen: true }));
+      }
+      if (queue.length > 1) {
+        listEl.append(groupHeading(`Then — ${queue.length - 1} more`, 'later'));
+        for (const book of queue.slice(1)) listEl.append(renderBook(book));
+      }
+    } else if (view === 'rereads') {
+      for (const book of rows) listEl.append(renderBook(book, { showWhen: true }));
     } else {
       for (const book of rows) listEl.append(renderBook(book));
     }
 
     listEl.classList.toggle('is-queue', view === 'unfinished');
+    document.getElementById('reread-settings').hidden = view !== 'rereads';
     emptyEl.hidden = rows.length > 0;
     emptyEl.textContent = EMPTY_COPY[view];
     hintEl.hidden = view !== 'unfinished' || rows.length < 2;
 
     for (const [name, statuses] of Object.entries(VIEWS)) {
       const el = document.querySelector(`[data-count="${name}"]`);
-      if (el) el.textContent = books.filter((b) => statuses.includes(b.status)).length;
+      if (!el) continue;
+      el.textContent = statuses
+        ? books.filter((b) => statuses.includes(b.status)).length
+        : books.filter((b) => b.reread).length;
     }
   }
 
@@ -424,10 +482,15 @@
     return li;
   }
 
-  function renderBook(book) {
+  function renderBook(book, { showWhen = false } = {}) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.id = book.id;
     if (book.status === 'reading') node.classList.add('is-reading');
+    if (showWhen && dueAgain(book)) node.classList.add('is-due');
+
+    const when = node.querySelector('.when');
+    if (showWhen) when.textContent = describeWhen(book);
+    when.hidden = !showWhen;
 
     const img = node.querySelector('.cover');
     const fallback = node.querySelector('.cover-fallback');
@@ -701,6 +764,14 @@
 
   /* --------------------------------------------------------------- shelves */
 
+  const rereadYearsInput = document.getElementById('reread-years');
+  rereadYearsInput.value = String(rereadYears);
+  rereadYearsInput.addEventListener('change', () => {
+    rereadYears = Number(rereadYearsInput.value) || 2;
+    save();
+    render();
+  });
+
   const shelfNav = document.getElementById('shelves');
 
   shelfNav.addEventListener('click', (event) => {
@@ -769,9 +840,12 @@
       select.append(opt);
     }
     select.addEventListener('change', () => {
+      const wasRead = book.status === 'read';
       book.status = select.value;
-      if (book.status === 'read' && !book.finishedAt) book.finishedAt = new Date().toISOString().slice(0, 10);
-      if (book.status !== 'read') book.finishedAt = '';
+      /* Each finish stamps the date, which is what restarts a reread cycle.
+         Starting it again keeps the old date rather than clearing it: that is
+         the record of when you last got to the end. */
+      if (book.status === 'read' && !wasRead) book.finishedAt = today();
       save();
       render();
     });
@@ -789,6 +863,50 @@
       showNote(book);  // the row behind the sheet keeps up as you type
     });
     notesField.append(notes);
+
+    const rotation = document.createElement('div');
+    rotation.className = 'field';
+    const rotationLabel = document.createElement('label');
+    rotationLabel.className = 'check';
+    const rotationBox = document.createElement('input');
+    rotationBox.type = 'checkbox';
+    rotationBox.checked = !!book.reread;
+    const rotationText = document.createElement('span');
+    rotationText.textContent = 'Read this again every so often';
+    rotationLabel.append(rotationBox, rotationText);
+
+    const rotationWhen = document.createElement('p');
+    rotationWhen.className = 'sub muted';
+
+    const finishedAgain = document.createElement('button');
+    finishedAgain.type = 'button';
+    finishedAgain.className = 'ghost';
+    finishedAgain.textContent = 'I finished it again today';
+
+    const showRotation = () => {
+      rotationWhen.textContent = book.reread ? describeWhen(book) : '';
+      rotationWhen.hidden = !book.reread;
+      finishedAgain.hidden = !book.reread;
+    };
+
+    rotationBox.addEventListener('change', () => {
+      book.reread = rotationBox.checked;
+      save();
+      showRotation();
+      render();
+    });
+
+    finishedAgain.addEventListener('click', () => {
+      book.finishedAt = today();
+      book.status = 'read';
+      select.value = 'read';
+      save();
+      showRotation();
+      render();
+    });
+
+    showRotation();
+    rotation.append(labelSpan('Rereading'), rotationLabel, rotationWhen, finishedAgain);
 
     const links = document.createElement('div');
     links.className = 'field';
@@ -828,7 +946,7 @@
     });
 
     actions.append(top, remove);
-    dialogBody.append(head, statusField, notesField, links, actions);
+    dialogBody.append(head, statusField, notesField, rotation, links, actions);
     dialog.showModal();
   }
 
@@ -1065,7 +1183,7 @@
       const res = await fetch(listUrl(), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: 1, changedAt, books }),
+        body: JSON.stringify({ version: 1, changedAt, rereadYears, books }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // Saved somewhere other than this phone, which is what a backup is — but
@@ -1106,6 +1224,7 @@
 
       if (remoteChanged > changedAt || nothingHere) {
         books = remote.books.filter(isBook);
+        if (remote.rereadYears) rereadYears = Number(remote.rereadYears) || rereadYears;
         changedAt = remote.changedAt || Date.now();
         exportedAt = Date.now();
         write();

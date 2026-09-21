@@ -45,8 +45,21 @@
 
   <nav class="shelves" id="shelves" aria-label="Shelves">
     <button type="button" class="shelf is-active" data-shelf="unfinished">Reading list <span class="count" data-count="unfinished">0</span></button>
+    <button type="button" class="shelf" data-shelf="rereads">Rereads <span class="count" data-count="rereads">0</span></button>
     <button type="button" class="shelf" data-shelf="read">Read <span class="count" data-count="read">0</span></button>
   </nav>
+
+  <p id="reread-settings" class="reread-settings" hidden>
+    Come back to these every
+    <label class="visually-hidden" for="reread-years">years between rereads</label>
+    <select id="reread-years">
+      <option value="1">year</option>
+      <option value="2" selected>2 years</option>
+      <option value="3">3 years</option>
+      <option value="5">5 years</option>
+    </select>
+    <span class="muted">&middot; longest unread first</span>
+  </p>
 
   <p id="reorder-hint" class="hint">Drag the <span aria-hidden="true">⠿</span> handle to set the order. Start a book from its page and it moves up to <em>Reading now</em>.</p>
 
@@ -137,6 +150,7 @@
       <p class="title"></p>
       <p class="author"></p>
       <p class="sub muted"></p>
+      <p class="when"></p>
       <p class="note"></p>
     </div>
     <div class="row-actions">

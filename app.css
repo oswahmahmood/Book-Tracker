@@ -169,6 +169,8 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 }
 .group-head.is-reading h2 { color: var(--reading); }
 .group-head.is-reading::after { background: var(--reading-soft); }
+.group-head.is-due h2 { color: var(--reading); }
+.group-head.is-due::after { background: var(--reading-soft); }
 .group-head.is-next h2 { color: var(--accent); }
 .group-head.is-next::after { background: var(--accent-soft); }
 
@@ -229,6 +231,27 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .title { font-weight: 600; line-height: 1.25; letter-spacing: -.005em; }
 .author { font-size: .85rem; color: var(--muted); }
 .sub { font-size: .75rem; color: var(--muted); }
+.when {
+  font-size: .75rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.when[hidden] { display: none; }
+.book.is-due .when { color: var(--reading); font-weight: 600; }
+.book.is-due { border-left: 5px solid var(--reading-soft); }
+
+.reread-settings {
+  margin: 16px 2px 4px;
+  font-size: .85rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reread-settings select { width: auto; padding: 6px 10px; border-radius: 10px; }
+.reread-settings[hidden] { display: none; }
+
 .note {
   font-size: .8rem;
   line-height: 1.35;

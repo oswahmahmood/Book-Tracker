@@ -328,6 +328,102 @@ await check('the headings follow what is actually in the list', async () => {
   await ctx.close();
 });
 
+/* Seed a finished book, optionally in the rotation, last read `yearsAgo`. */
+async function seedRereads(page, entries) {
+  await page.evaluate((rows) => {
+    const books = rows.map((row, i) => {
+      const finished = new Date();
+      finished.setFullYear(finished.getFullYear() - row.yearsAgo);
+      return {
+        id: `r${i}`, title: row.title, authors: ['An Author'], isbn: '', cover: '', coverChecked: true,
+        status: 'read', reread: row.reread !== false, notes: '', rating: 0, publisher: '', year: '2000',
+        pages: 100, source: 'test', addedAt: '',
+        finishedAt: row.yearsAgo === null ? '' : finished.toISOString().slice(0, 10),
+      };
+    });
+    localStorage.setItem('reading-list.v1', JSON.stringify({ version: 1, rereadYears: 2, books }));
+  }, entries);
+  await page.reload();
+}
+
+await check('the rereads tab puts the longest unread at the top', async () => {
+  const { ctx, page } = await newPage();
+  await seedRereads(page, [
+    { title: 'Read last year', yearsAgo: 1 },
+    { title: 'Read six years ago', yearsAgo: 6 },
+    { title: 'Read three years ago', yearsAgo: 3 },
+    { title: 'Never logged', yearsAgo: null },
+    { title: 'Not in the rotation', yearsAgo: 9, reread: false },
+  ]);
+
+  await page.click('.shelf[data-shelf="rereads"]');
+  assert.deepEqual(await titles(page),
+    ['Never logged', 'Read six years ago', 'Read three years ago', 'Read last year'],
+    'oldest first, and a book outside the rotation stays out');
+  assert.equal(await page.textContent('[data-count="rereads"]'), '4');
+  assert.match(await page.locator('.book').nth(1).locator('.when').textContent(), /due now/);
+  assert.match(await page.locator('.book').last().locator('.when').textContent(), /due in (a year|1[01] months|\d+ months)/);
+  await ctx.close();
+});
+
+await check('a reread that has come round surfaces in the main list', async () => {
+  const { ctx, page } = await newPage();
+  await seedRereads(page, [
+    { title: 'Due for another go', yearsAgo: 4 },
+    // a year ago: not due under the two-year cycle, and far enough from today
+    // that finishing the other one cannot tie with it
+    { title: 'Not due for ages', yearsAgo: 1 },
+  ]);
+
+  assert.deepEqual(await titles(page), ['Due for another go'], 'only the due one comes forward');
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(), ['Due again — 1']);
+  assert.match(await page.locator('.book').first().locator('.when').textContent(), /due now/);
+
+  // finishing it again restarts the cycle and clears it from the list
+  await page.locator('.book').first().locator('.open').click();
+  await page.click('#book-dialog .field button.ghost');
+  await page.click('#book-dialog button[type="submit"]');
+  assert.equal(await page.locator('.book').count(), 0, 'finished again, so not due again');
+  await page.click('.shelf[data-shelf="rereads"]');
+  assert.deepEqual(await titles(page), ['Not due for ages', 'Due for another go'],
+    'and it drops to the bottom of the rotation');
+  await ctx.close();
+});
+
+await check('one cycle governs everything, and changing it changes what is due', async () => {
+  const { ctx, page } = await newPage();
+  await seedRereads(page, [{ title: 'Read three years ago', yearsAgo: 3 }, { title: 'Read last year', yearsAgo: 1 }]);
+  assert.deepEqual(await titles(page), ['Read three years ago'], 'two-year cycle: only the older one');
+
+  await page.click('.shelf[data-shelf="rereads"]');
+  await page.selectOption('#reread-years', '5');
+  await page.click('.shelf[data-shelf="unfinished"]');
+  assert.equal(await page.locator('.book').count(), 0, 'a five-year cycle means neither is due');
+
+  await page.click('.shelf[data-shelf="rereads"]');
+  await page.selectOption('#reread-years', '1');
+  await page.click('.shelf[data-shelf="unfinished"]');
+  assert.deepEqual(await titles(page), ['Read three years ago', 'Read last year'], 'a year: both');
+
+  await page.reload();
+  assert.deepEqual(await titles(page), ['Read three years ago', 'Read last year'], 'the cycle is remembered');
+  await ctx.close();
+});
+
+await check('starting a reread keeps the date it was last finished', async () => {
+  const { ctx, page } = await newPage();
+  await seedRereads(page, [{ title: 'Due for another go', yearsAgo: 4 }]);
+  await page.locator('.book').first().locator('.open').click();
+  await page.selectOption('#book-dialog select', 'reading');
+  await page.click('#book-dialog button[type="submit"]');
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.ok(stored.finishedAt, 'the record of the last finish must survive picking it up again');
+  assert.equal(stored.status, 'reading');
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(), ['Reading now']);
+  await ctx.close();
+});
+
 await check('finished books move to their own tab', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 2);

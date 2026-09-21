@@ -62,7 +62,7 @@ npm install
 npm test
 ```
 
-Forty-one end-to-end checks run in a headless iPhone-sized browser: adding
+Forty-five end-to-end checks run in a headless iPhone-sized browser: adding
 by ISBN, the check-digit guard, duplicates, title search, both ways of
 reordering, order surviving a reload, shelf moves, the cover fallback chain,
 the offline and throttled error messages, export/restore, sync in both
@@ -129,6 +129,22 @@ sync (above) to be covered for that, or:
 **Backup → Export a copy** now and then. On iPhone that opens the share sheet,
 so you can drop the JSON file into Files or iCloud Drive. *Restore from a file*
 reads it back and skips anything already on the list.
+
+## Books worth going back to
+
+Any book can be put in a rotation: open it and tick *Read this again every so
+often*. One cycle covers everything — two years by default, changed at the top
+of the **Rereads** tab, which lists the rotation with whatever has gone longest
+unread at the top.
+
+A book in the rotation does not clutter the reading list until it comes round.
+When it does, it appears there under **Due again**, directly after Next up, so
+the reading list stays the one place worth looking. *I finished it again today*
+on a book's page restarts its cycle; so does finishing it the ordinary way.
+
+Each finish stamps the date, and picking a book up again keeps the previous
+one until the new finish replaces it — that date is the whole basis of the
+rotation, and clearing it on starting a reread would quietly destroy it.
 
 ## Bringing a Goodreads library across
 
