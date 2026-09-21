@@ -1,21 +1,27 @@
 :root {
-  /* One palette on purpose: this stays blush even when the phone is in
-     dark mode, which is what it is meant to look like. */
+  /* Fig & Moss: warm greige ground, fig for what you do, moss for what you are
+     reading, amber for what is next. One palette, shared with the other tools. */
   color-scheme: light;
-  --bg: #fff5f8;
-  --bg-wash: #ffe3ee;
-  --card: #fffbfc;
-  --ink: #2c1820;
-  --muted: #8a6575;
-  --line: #f4d8e4;
-  --accent: #d6407f;
-  --accent-soft: #ffe0ed;
-  --accent-ink: #fff;
-  --reading: #0c7d6d;
-  --reading-soft: #d5f0ea;
-  --shadow: 0 1px 2px rgba(120, 40, 75, .06), 0 10px 26px rgba(120, 40, 75, .08);
+  --bg: #F5EFEA;
+  --bg-wash: #EDE1D9;
+  --card: #FFFBF7;
+  --ink: #2D2429;
+  --muted: #6B5A60;
+  --line: #E7DAD8;
+  --accent: #6B4550;
+  --accent-soft: #EFDFE2;
+  --accent-ink: #FFFBF7;
+  --reading: #566B44;
+  --reading-soft: #E4EADA;
+  --next: #A0663F;
+  --next-soft: #F1E1D4;
+  --shadow: 0 1px 2px rgba(45, 36, 41, .06), 0 10px 26px rgba(45, 36, 41, .09);
   --radius: 18px;
+  --display: Fraunces, Georgia, "Times New Roman", serif;
+  --display-axes: "opsz" 96, "SOFT" 0, "WONK" 0;
+  --body: Karla, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
+
 * { box-sizing: border-box; }
 
 /* Author rules beat the browser's own [hidden] rule, so a hidden flex or grid
@@ -30,7 +36,7 @@ body {
     radial-gradient(120% 60% at 50% 0%, var(--bg-wash) 0%, transparent 70%),
     var(--bg);
   background-attachment: fixed;
-  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 16px/1.45 var(--body);
   padding: 0 max(16px, env(safe-area-inset-left)) calc(40px + env(safe-area-inset-bottom));
   -webkit-text-size-adjust: 100%;
 }
@@ -48,10 +54,12 @@ main { max-width: 680px; margin: 0 auto; }
 }
 .topbar h1 {
   margin: 0;
-  font-family: ui-serif, Georgia, "Times New Roman", serif;
-  font-size: 1.6rem;
-  font-weight: 600;
-  letter-spacing: -.015em;
+  font-family: var(--display);
+  font-variation-settings: var(--display-axes);
+  font-size: clamp(1.75rem, 8.5vw, 2.05rem);
+  font-weight: 900;
+  letter-spacing: -.025em;
+  line-height: 1.05;
   color: var(--accent);
 }
 
@@ -62,7 +70,7 @@ button, .file-btn > span {
   padding: 10px 18px;
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -160,7 +168,7 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .group-head h2 {
   margin: 0;
   font-size: .72rem;
-  letter-spacing: .12em;
+  letter-spacing: .13em;
   text-transform: uppercase;
   font-weight: 700;
   color: var(--muted);
@@ -176,8 +184,8 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .group-head.is-reading::after { background: var(--reading-soft); }
 .group-head.is-due h2 { color: var(--reading); }
 .group-head.is-due::after { background: var(--reading-soft); }
-.group-head.is-next h2 { color: var(--accent); }
-.group-head.is-next::after { background: var(--accent-soft); }
+.group-head.is-next h2 { color: var(--next); }
+.group-head.is-next::after { background: var(--next-soft); }
 
 .book.is-reading {
   border-color: var(--reading-soft);
@@ -190,8 +198,8 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 
 /* The one you will pick up next gets the accent, and a little more presence. */
 .group-head.is-next + .book {
-  border-color: var(--accent);
-  border-left: 5px solid var(--accent);
+  border-color: var(--next);
+  border-left: 5px solid var(--next);
 }
 
 .grip {
@@ -233,9 +241,16 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 
 .meta { min-width: 0; }
 .meta p { margin: 0; }
-.title { font-weight: 600; line-height: 1.25; letter-spacing: -.005em; }
-.author { font-size: .85rem; color: var(--muted); }
-.sub { font-size: .75rem; color: var(--muted); }
+.title {
+  font-family: var(--display);
+  font-variation-settings: "opsz" 40, "SOFT" 0, "WONK" 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.18;
+  letter-spacing: -.01em;
+}
+.author { font-size: .85rem; font-weight: 500; color: var(--muted); }
+.sub { font-size: .75rem; font-weight: 500; color: var(--muted); }
 .when {
   font-size: .75rem;
   color: var(--muted);

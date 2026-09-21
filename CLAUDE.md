@@ -21,6 +21,19 @@ When fixing a bug, write the check first and confirm it fails against the
 current code. Several tests here passed against broken behaviour until that was
 done, and one hung rather than failing.
 
+## The look
+
+Fig & Moss, chosen from a design canvas of options: warm greige ground
+(`--bg`), fig for what you do (buttons, the title), moss for what is being
+read, amber for what is next. Three states, three colours — they were sharing
+one before, and it did not read.
+
+Fraunces at 900 for the app title and book titles (its `opsz`, `SOFT` and
+`WONK` axes are set deliberately), Karla for everything else, both from Google
+Fonts and cached by the service worker so they survive going offline. Tokens
+live at the top of `app.css`; the palette is meant to carry to the owner's
+other tools, so change it there and nowhere else.
+
 ## What the app is
 
 Plain HTML, CSS and one JavaScript file. No build step, no framework, no

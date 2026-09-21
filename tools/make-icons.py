@@ -6,10 +6,10 @@ sizes iOS and the web manifest ask for.
 """
 import struct, zlib, os
 
-BG = (236, 95, 155)      # pink
-PAGE = (255, 244, 249)   # near-white blush
-SPINE = (142, 43, 90)    # deep plum
-MARK = (142, 43, 90)
+BG = (107, 69, 80)       # fig
+PAGE = (247, 238, 230)   # cream
+SPINE = (86, 107, 68)    # moss
+MARK = (86, 107, 68)
 
 def draw(size, padding_ratio=0.16):
     px = [[BG for _ in range(size)] for _ in range(size)]

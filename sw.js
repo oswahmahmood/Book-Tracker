@@ -7,9 +7,9 @@
  *
  * Book covers are the other way round: they never change, so the cached copy
  * is the right answer and saves the request. */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = `reading-list-shell-${VERSION}`;
-const COVERS = 'reading-list-covers-v1';
+const COVERS = 'reading-list-assets-v1';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -51,16 +51,20 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-const isCover = (url) => /(^|\.)covers\.openlibrary\.org$/.test(url.hostname)
+/* Covers and font files never change for a given URL, so the stored copy is
+   the right answer — and it is what keeps the app readable offline. */
+const isImmutableAsset = (url) => /(^|\.)covers\.openlibrary\.org$/.test(url.hostname)
   || /(^|\.)books\.google\.com$/.test(url.hostname)
-  || /(^|\.)books\.googleusercontent\.com$/.test(url.hostname);
+  || /(^|\.)books\.googleusercontent\.com$/.test(url.hostname)
+  || /(^|\.)fonts\.googleapis\.com$/.test(url.hostname)
+  || /(^|\.)fonts\.gstatic\.com$/.test(url.hostname);
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
-  if (isCover(url)) {
+  if (isImmutableAsset(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(COVERS);
       const hit = await cache.match(request);

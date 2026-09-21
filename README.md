@@ -237,7 +237,7 @@ itself rather than uploading its emptiness.
 | File | What it is |
 | --- | --- |
 | `index.html` | Markup and the row/dialog templates |
-| `app.css` | Styles — one blush palette, in light mode whatever the phone is set to |
+| `app.css` | Styles — the Fig & Moss palette and type, in light mode whatever the phone is set to |
 | `app.js` | Storage, ISBN validation, the two lookup APIs, ordering, drag and drop |
 | `sw.js` | Service worker — network-first for the app itself, cache-first for covers |
 | `manifest.webmanifest` | Makes it installable (name, icons, standalone display) |
