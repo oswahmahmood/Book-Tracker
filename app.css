@@ -260,8 +260,12 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .book.is-due .when { color: var(--reading); font-weight: 600; }
 .book.is-due { border-left: 5px solid var(--reading-soft); }
 
+/* No handle on this tab: the order is the dates', not yours. A display:none
+   child claims no grid column, so the row has to lose one as well — leaving
+   the four columns in place put the cover in the zero-width slot and squeezed
+   the title into the 58px meant for the cover. */
 .is-fixed-order .grip, .is-fixed-order .up, .is-fixed-order .down { display: none; }
-.is-fixed-order .book { grid-template-columns: 0 58px 1fr auto; gap: 8px; }
+.is-fixed-order .book { grid-template-columns: 58px 1fr auto; }
 
 .reread-settings {
   margin: 16px 2px 4px;

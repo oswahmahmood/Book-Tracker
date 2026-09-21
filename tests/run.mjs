@@ -385,6 +385,21 @@ await check('the hidden bits of the book sheet stay hidden', async () => {
   await ctx.close();
 });
 
+await check('a rereads row is laid out, not squeezed into a sliver', async () => {
+  const { ctx, page } = await newPage();
+  await seedRereads(page, [{ title: 'Read years ago', yearsAgo: 4 }]);
+  await page.click('.shelf[data-shelf="rereads"]');
+
+  const cover = await page.locator('.book .cover-wrap').first().boundingBox();
+  const meta = await page.locator('.book .meta').first().boundingBox();
+  const row = await page.locator('.book').first().boundingBox();
+  assert.ok(cover.width > 50, `the cover should keep its width, was ${Math.round(cover.width)}px`);
+  assert.ok(meta.width > 180, `the text needs room to sit on one line, had ${Math.round(meta.width)}px`);
+  assert.ok(cover.x < meta.x, 'the cover comes before the text, not on top of it');
+  assert.ok(row.height < 200, `the row should not tower, was ${Math.round(row.height)}px`);
+  await ctx.close();
+});
+
 await check('the arrows are gone where the order is not yours to set', async () => {
   const { ctx, page } = await newPage();
   const errors = [];

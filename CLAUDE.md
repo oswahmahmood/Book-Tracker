@@ -12,7 +12,7 @@ deploys to GitHub Pages on every push — so a push reaches a real phone within 
 minute or two. Pull requests are for when a change is worth looking at first,
 not the default; the owner asked for the merge button to go away.
 
-**`npm test` must pass before every push.** 51 end-to-end checks in a headless
+**`npm test` must pass before every push.** 52 end-to-end checks in a headless
 iPhone-sized browser. There is no CI: this suite is the only thing standing
 between a mistake and the owner's phone. A run takes a few minutes, which is
 still cheaper than shipping a blank screen.
@@ -67,6 +67,10 @@ free, forever, by copying files to a static host.
   — do not go back to per-element rules.
 - Dates come from the reader's clock, not UTC. `toISOString()` stamps
   yesterday after midnight in British summer time.
+- A `display: none` child claims no grid column. Hiding one in a row means
+  the row's `grid-template-columns` loses one too, or everything shifts left.
+  A check that something is hidden says nothing about what it left behind:
+  assert the layout.
 - Redraw what changed, not the whole list. A blanket re-render left tests
   holding elements that had just been replaced — twice — and it was churn
   either way.
