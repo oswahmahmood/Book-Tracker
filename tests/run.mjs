@@ -255,13 +255,60 @@ await check('moving a book between shelves keeps the other shelf intact', async 
   await page.selectOption('#book-dialog select', 'reading');
   await page.fill('#book-dialog textarea', 'on the train');
   await page.click('#book-dialog button[type="submit"]');
-  assert.deepEqual(await titles(page), ['One', 'Three']);
-  assert.equal(await page.textContent('[data-count="reading"]'), '1');
+  assert.deepEqual(await titles(page), ['Two', 'One', 'Three'], 'the book being read moves to the top');
+  assert.equal(await page.textContent('[data-count="unfinished"]'), '3');
   await page.reload();
-  await page.click('.shelf[data-shelf="reading"]');
-  assert.deepEqual(await titles(page), ['Two']);
+  assert.deepEqual(await titles(page), ['Two', 'One', 'Three'], 'what you are reading sits on top');
   await page.locator('.book').first().locator('.open').click();
   assert.equal(await page.inputValue('#book-dialog textarea'), 'on the train');
+  await ctx.close();
+});
+
+await check('what you are reading leads the list, and looks different', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 3);
+
+  // start the middle one
+  await page.locator('.book').nth(1).locator('.open').click();
+  await page.selectOption('#book-dialog select', 'reading');
+  await page.click('#book-dialog button[type="submit"]');
+
+  assert.deepEqual(await titles(page), ['Two', 'One', 'Three'], 'it should move to the top');
+  assert.equal(await page.locator('.book').first().getAttribute('class'), 'book is-reading');
+  assert.equal(await page.locator('.book').first().locator('.row-badge').textContent(), 'Reading now');
+  assert.equal(await page.locator('.book').nth(1).locator('.row-badge').textContent(), 'Next up',
+    'the first unstarted book is what comes next');
+
+  // the highlight is a different colour from the rest of the app
+  const [readingBorder, plainBorder] = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.book')];
+    return [getComputedStyle(rows[0]).borderTopColor, getComputedStyle(rows[1]).borderTopColor];
+  });
+  assert.notEqual(readingBorder, plainBorder, 'a book on the go should stand out');
+
+  // two started books keep their own order above the rest
+  await page.locator('.book').last().locator('.open').click();
+  await page.selectOption('#book-dialog select', 'reading');
+  await page.click('#book-dialog button[type="submit"]');
+  assert.deepEqual(await titles(page), ['Two', 'Three', 'One']);
+  await page.reload();
+  assert.deepEqual(await titles(page), ['Two', 'Three', 'One'], 'and survive a reload');
+  await ctx.close();
+});
+
+await check('finished books move to their own tab', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 2);
+  await page.locator('.book').first().locator('.open').click();
+  await page.selectOption('#book-dialog select', 'read');
+  await page.click('#book-dialog button[type="submit"]');
+
+  assert.deepEqual(await titles(page), ['Two'], 'a finished book leaves the reading list');
+  assert.equal(await page.textContent('[data-count="read"]'), '1');
+  await page.click('.shelf[data-shelf="read"]');
+  assert.deepEqual(await titles(page), ['One']);
+  assert.equal(await page.locator('.book').first().locator('.row-badge').isHidden(), true,
+    'no badges on the finished shelf');
   await ctx.close();
 });
 
@@ -331,7 +378,7 @@ await check('builds a four-book list and holds the order it is put in', async ()
   }
 
   assert.deepEqual(await titles(page), wanted.map(([, t]) => t), 'new books land at the bottom of the queue');
-  assert.equal(await page.textContent('[data-count="toread"]'), '4');
+  assert.equal(await page.textContent('[data-count="unfinished"]'), '4');
   assert.equal(await page.locator('.book').nth(3).locator('.author').textContent(), 'Mary Ann Sieghart');
 
   // Read The Authority Gap first, then Mind the Gap.
@@ -349,9 +396,9 @@ await check('builds a four-book list and holds the order it is put in', async ()
 
   await page.reload();
   await page.waitForSelector('.book');
-  assert.deepEqual(await titles(page), ['The Good Immigrant', 'Mind the Gap', 'The Inner Game of Tennis']);
-  await page.click('.shelf[data-shelf="reading"]');
-  assert.deepEqual(await titles(page), ['The Authority Gap']);
+  assert.deepEqual(await titles(page), [
+    'The Authority Gap', 'The Good Immigrant', 'Mind the Gap', 'The Inner Game of Tennis',
+  ], 'the one being read leads, the rest keep their order');
   assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -11,6 +11,8 @@
   --accent: #d6407f;
   --accent-soft: #ffe0ed;
   --accent-ink: #fff;
+  --reading: #0c7d6d;
+  --reading-soft: #d5f0ea;
   --shadow: 0 1px 2px rgba(120, 40, 75, .06), 0 10px 26px rgba(120, 40, 75, .08);
   --radius: 18px;
 }
@@ -139,21 +141,32 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 }
 .book.dragging { opacity: .9; box-shadow: 0 14px 30px rgba(0, 0, 0, .25); transform: scale(1.015); border-color: var(--accent); }
 
-/* The top of the queue is the whole point of the app — mark it. */
-.is-queue .book:first-child { border-color: var(--accent); }
-.next-badge {
+/* What you are reading, and what you will read next, are the two things worth
+   spotting at a glance. Green for on the go, pink for next. */
+.row-badge {
   display: none;
   font-size: .62rem;
   letter-spacing: .09em;
   text-transform: uppercase;
   font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
   border-radius: 999px;
   padding: 3px 9px;
   margin-bottom: 5px;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
-.is-queue .book:first-child .next-badge { display: inline-block; }
+.book.is-next .row-badge,
+.book.is-reading .row-badge { display: inline-block; }
+
+.book.is-next { border-color: var(--accent); }
+
+.book.is-reading {
+  border-color: var(--reading);
+  background: linear-gradient(var(--reading-soft), var(--card) 70%);
+}
+.book.is-reading .row-badge { color: var(--reading); background: #fff; }
+.book.is-reading .cover-wrap { box-shadow: 0 2px 10px rgba(12, 125, 109, .3); }
+.book.is-reading .note { border-left-color: var(--reading); }
 
 .grip {
   background: transparent;

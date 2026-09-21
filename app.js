@@ -7,9 +7,16 @@
   const STORE_KEY = 'reading-list.v1';
   const SHELVES = ['toread', 'reading', 'read'];
   const SHELF_LABELS = { toread: 'To read', reading: 'Reading', read: 'Read' };
+
+  /* One list of books you have not finished, with whatever you are actually
+     reading floated to the top of it — a book on the go is not a different
+     kind of thing from the one you will pick up next, it is just first. */
+  const VIEWS = {
+    unfinished: ['reading', 'toread'],
+    read: ['read'],
+  };
   const EMPTY_COPY = {
-    toread: 'Nothing queued yet. Add a book by its ISBN — the 13 digits under the barcode.',
-    reading: 'Nothing on the go. Open a book from "To read" and set it to Reading.',
+    unfinished: 'Nothing here yet. Add a book by its ISBN — the 13 digits under the barcode.',
     read: 'Books you finish will collect here.',
   };
 
@@ -19,7 +26,7 @@
   let changedAt = 0;   // when the list last changed
   let exportedAt = 0;  // when a copy was last saved off the device
   let books = load();
-  let shelf = 'toread';
+  let view = 'unfinished';
 
   function load() {
     try {
@@ -361,28 +368,46 @@
   const hintEl = document.getElementById('reorder-hint');
   const template = document.getElementById('book-template');
 
-  const visible = () => books.filter((b) => b.status === shelf);
+  /* The order within each status is the order you set; the statuses themselves
+     are ranked, so reading always sits above to-read. */
+  function visible() {
+    const wanted = VIEWS[view];
+    return books
+      .filter((b) => wanted.includes(b.status))
+      .sort((a, b) => wanted.indexOf(a.status) - wanted.indexOf(b.status));
+  }
 
   function render() {
     const rows = visible();
     listEl.textContent = '';
 
-    for (const book of rows) listEl.append(renderBook(book));
+    // "Next up" marks the first book you are not already reading.
+    const nextUp = view === 'unfinished' ? rows.find((b) => b.status === 'toread') : null;
+    for (const book of rows) listEl.append(renderBook(book, { isNext: book === nextUp }));
 
-    listEl.classList.toggle('is-queue', shelf === 'toread');
+    listEl.classList.toggle('is-queue', view === 'unfinished');
     emptyEl.hidden = rows.length > 0;
-    emptyEl.textContent = EMPTY_COPY[shelf];
-    hintEl.hidden = shelf !== 'toread' || rows.length < 2;
+    emptyEl.textContent = EMPTY_COPY[view];
+    hintEl.hidden = view !== 'unfinished' || rows.length < 2;
 
-    for (const s of SHELVES) {
-      const el = document.querySelector(`[data-count="${s}"]`);
-      if (el) el.textContent = books.filter((b) => b.status === s).length;
+    for (const [name, statuses] of Object.entries(VIEWS)) {
+      const el = document.querySelector(`[data-count="${name}"]`);
+      if (el) el.textContent = books.filter((b) => statuses.includes(b.status)).length;
     }
   }
 
-  function renderBook(book) {
+  function renderBook(book, { isNext = false } = {}) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.id = book.id;
+
+    const badge = node.querySelector('.row-badge');
+    if (book.status === 'reading') {
+      node.classList.add('is-reading');
+      badge.textContent = 'Reading now';
+    } else if (isNext) {
+      node.classList.add('is-next');
+      badge.textContent = 'Next up';
+    }
 
     const img = node.querySelector('.cover');
     const fallback = node.querySelector('.cover-fallback');
@@ -431,20 +456,27 @@
 
   /* Rewrite the global array so the books on this shelf take the order given,
      leaving books on other shelves where they are. */
-  function applyOrder(ids, forShelf = shelf) {
-    const slots = [];
-    books.forEach((b, i) => { if (b.status === forShelf) slots.push(i); });
-    const reordered = ids.map(byId).filter(Boolean);
-    if (reordered.length !== slots.length) return;
+  function applyOrder(ids, forStatus) {
+    const wanted = forStatus ? [forStatus] : VIEWS[view];
+    let moved = false;
 
-    // A tap on the drag handle ends as a reorder to the same order. Saving that
-    // would bump the change time, light the backup warning and spend a sync
-    // write on nothing.
-    const unchanged = slots.every((slot, i) => books[slot] === reordered[i]);
-    if (unchanged) return;
+    for (const status of wanted) {
+      const slots = [];
+      books.forEach((b, i) => { if (b.status === status) slots.push(i); });
+      // Only this status's books, in the order the screen now shows them.
+      const reordered = ids.map(byId).filter((b) => b && b.status === status);
+      if (reordered.length !== slots.length) continue;
 
-    slots.forEach((slot, i) => { books[slot] = reordered[i]; });
-    save();
+      // A tap on the drag handle ends as a reorder to the same order. Saving
+      // that would bump the change time, light the backup warning and spend a
+      // sync write on nothing.
+      if (slots.every((slot, i) => books[slot] === reordered[i])) continue;
+
+      slots.forEach((slot, i) => { books[slot] = reordered[i]; });
+      moved = true;
+    }
+
+    if (moved) save();
   }
 
   function nudge(id, delta) {
@@ -549,7 +581,7 @@
     };
     books.push(book);
     save();
-    shelf = 'toread';
+    view = 'unfinished';
     syncShelfButtons();
     render();
     setStatus(addStatus, `Added ${book.title}.`);
@@ -654,14 +686,14 @@
   shelfNav.addEventListener('click', (event) => {
     const btn = event.target.closest('.shelf');
     if (!btn) return;
-    shelf = btn.dataset.shelf;
+    view = btn.dataset.shelf;
     syncShelfButtons();
     render();
   });
 
   function syncShelfButtons() {
     for (const btn of shelfNav.querySelectorAll('.shelf')) {
-      btn.classList.toggle('is-active', btn.dataset.shelf === shelf);
+      btn.classList.toggle('is-active', btn.dataset.shelf === view);
     }
   }
 

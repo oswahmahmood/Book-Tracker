@@ -44,12 +44,11 @@
   </section>
 
   <nav class="shelves" id="shelves" aria-label="Shelves">
-    <button type="button" class="shelf is-active" data-shelf="toread">To read <span class="count" data-count="toread">0</span></button>
-    <button type="button" class="shelf" data-shelf="reading">Reading <span class="count" data-count="reading">0</span></button>
+    <button type="button" class="shelf is-active" data-shelf="unfinished">Reading list <span class="count" data-count="unfinished">0</span></button>
     <button type="button" class="shelf" data-shelf="read">Read <span class="count" data-count="read">0</span></button>
   </nav>
 
-  <p id="reorder-hint" class="hint">Drag the <span aria-hidden="true">⠿</span> handle to set your reading order. Next up is at the top.</p>
+  <p id="reorder-hint" class="hint">Drag the <span aria-hidden="true">⠿</span> handle to set your reading order. Whatever you&rsquo;re reading stays at the top.</p>
 
   <ol id="book-list" class="book-list"></ol>
 
@@ -118,7 +117,7 @@
       <span class="cover-fallback" aria-hidden="true"></span>
     </div>
     <div class="meta">
-      <span class="next-badge">Next up</span>
+      <span class="row-badge"></span>
       <p class="title"></p>
       <p class="author"></p>
       <p class="sub muted"></p>
