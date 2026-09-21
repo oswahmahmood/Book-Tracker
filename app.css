@@ -275,6 +275,8 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .sync-block { border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
 .sheet-body h3 { margin: 0 0 8px; font-size: .95rem; }
 .sync-block .field { margin: 8px 0; }
+.check { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: .9rem; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
 .backup-age { margin: 0; font-size: .9rem; color: var(--muted); }
 .backup-age.warn { color: var(--accent); font-weight: 500; }
 

@@ -188,6 +188,8 @@ await check('shows the note in the row, and nothing when there is none', async (
   await page.locator('.book').first().locator('.open').click();
   await page.fill('#book-dialog textarea', essay);
   await page.click('#book-dialog button[type="submit"]');
+  // closing the sheet redraws the row, so wait for the new one before measuring
+  await page.waitForFunction((text) => document.querySelector('.book .note')?.textContent === text, essay);
   const row = await page.locator('.book .note').first().boundingBox();
   assert.ok(row.height < 44, `the row note should stay short, was ${row.height}px`);
   await page.locator('.book').first().locator('.open').click();
@@ -670,6 +672,92 @@ await check('everything still works with sync switched off', async () => {
   await page.reload();
   assert.deepEqual(await titles(page), ['Two', 'One']);
   assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+/* A Goodreads export, with the things that break naive parsers: a comma inside
+   a quoted title, a review running over several lines with an escaped quote in
+   it, their ="..." ISBN format, a blank ISBN, and a custom shelf. */
+const GOODREADS_CSV = [
+  'Book Id,Title,Author,Additional Authors,ISBN,ISBN13,My Rating,Average Rating,Publisher,Number of Pages,Year Published,Original Publication Year,Date Read,Date Added,Bookshelves,Exclusive Shelf,My Review',
+  '1,"Wolf Hall, and after",Hilary Mantel,,="0007230184",="9780007230181",5,4.1,Fourth Estate,653,2009,2009,2024/03/11,2024/01/02,history,read,"Loved it.',
+  'The ""second"" half especially, once Cromwell settles in."',
+  '2,Piranesi,Susanna Clarke,,="1526622424",="9781526622426",0,4.2,Bloomsbury,245,2020,2020,,2025/06/01,,currently-reading,',
+  '3,The Good Immigrant,Nikesh Shukla,Chimene Suleyman,="",="",0,4.3,Unbound,208,2016,2016,,2025/07/14,,to-read,',
+  '4,Some Reference Book,A Compiler,,="",="",0,3.9,Someone,100,2001,2001,,2025/07/15,,reference,',
+].join('\n');
+
+await check('imports a Goodreads export, shelves and reviews intact', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('#backup-btn');
+  await page.setInputFiles('#goodreads-input',
+    { name: 'goodreads_library_export.csv', mimeType: 'text/csv', buffer: Buffer.from(GOODREADS_CSV) });
+  await page.waitForFunction(() => document.querySelector('#goodreads-state').textContent.includes('Added'));
+  const message = await page.textContent('#goodreads-state');
+  assert.match(message, /Added 3 books/, message);
+  await page.click('#backup-dialog button[type="submit"]');
+
+  // currently-reading leads, then to-read; the finished one is on the other tab
+  assert.deepEqual(await titles(page), ['Piranesi', 'The Good Immigrant']);
+  assert.equal(await page.locator('.book').first().locator('.row-badge').textContent(), 'Reading now');
+  await page.click('.shelf[data-shelf="read"]');
+  assert.deepEqual(await titles(page), ['Wolf Hall, and after'], 'a comma inside a quoted title survives');
+
+  const finished = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('reading-list.v1')).books.find((b) => b.status === 'read'));
+  assert.equal(finished.isbn, '9780007230181', 'the ="..." ISBN format is unwrapped');
+  assert.equal(finished.rating, 5);
+  assert.equal(finished.finishedAt, '2024-03-11');
+  assert.match(finished.notes, /Loved it\./);
+  assert.match(finished.notes, /"second" half/, 'an escaped quote inside the review');
+  assert.match(finished.notes, /\n/, 'a review spanning lines stays whole');
+
+  const noIsbn = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('reading-list.v1')).books.find((b) => b.title === 'The Good Immigrant'));
+  assert.equal(noIsbn.isbn, '', 'a blank ISBN is blank, not ="" ');
+  assert.deepEqual(noIsbn.authors, ['Nikesh Shukla', 'Chimene Suleyman']);
+
+  const titlesStored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('reading-list.v1')).books.map((b) => b.title));
+  assert.ok(!titlesStored.includes('Some Reference Book'), 'a custom shelf is not a reading status');
+  await ctx.close();
+});
+
+await check('a second Goodreads import adds nothing twice', async () => {
+  const { ctx, page } = await newPage();
+  const file = { name: 'export.csv', mimeType: 'text/csv', buffer: Buffer.from(GOODREADS_CSV) };
+  await page.click('#backup-btn');
+  await page.setInputFiles('#goodreads-input', file);
+  await page.waitForFunction(() => document.querySelector('#goodreads-state').textContent.includes('Added'));
+
+  await page.setInputFiles('#goodreads-input', file);
+  await page.waitForFunction(() => document.querySelector('#goodreads-state').textContent.includes('Nothing new'));
+  assert.match(await page.textContent('#goodreads-state'), /all 3 of those are already/);
+  await page.click('#backup-dialog button[type="submit"]');
+  assert.equal(await page.locator('.book').count(), 2, 'no duplicates on the reading list');
+  await ctx.close();
+});
+
+await check('the finished books can be left behind', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('#backup-btn');
+  await page.check('#goodreads-skip-read');
+  await page.setInputFiles('#goodreads-input',
+    { name: 'export.csv', mimeType: 'text/csv', buffer: Buffer.from(GOODREADS_CSV) });
+  await page.waitForFunction(() => document.querySelector('#goodreads-state').textContent.includes('Added'));
+  assert.match(await page.textContent('#goodreads-state'), /Added 2 books/);
+  await page.click('#backup-dialog button[type="submit"]');
+  assert.equal(await page.textContent('[data-count="read"]'), '0');
+  await ctx.close();
+});
+
+await check('a file that is not a Goodreads export says so', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('#backup-btn');
+  await page.setInputFiles('#goodreads-input',
+    { name: 'shopping.csv', mimeType: 'text/csv', buffer: Buffer.from('milk,bread\n1,2\n') });
+  await page.waitForSelector('#goodreads-state.error');
+  assert.match(await page.textContent('#goodreads-state'), /does not look like a Goodreads export/);
   await ctx.close();
 });
 

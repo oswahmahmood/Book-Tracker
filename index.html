@@ -94,6 +94,23 @@
           device you open the link on. Setting it up is a one-off &mdash; see the README.</p>
       </section>
 
+      <section class="sync-block">
+        <h3>From Goodreads</h3>
+        <p id="goodreads-state" class="status" role="status" aria-live="polite"></p>
+        <p class="muted">On goodreads.com: <strong>My Books</strong> &rarr; <strong>Import and export</strong>
+          (left sidebar, near the bottom) &rarr; <strong>Export Library</strong>. Save the file somewhere
+          your phone can reach, then pick it here. Shelves, ratings and reviews come across; covers
+          fill themselves in afterwards.</p>
+        <label class="check">
+          <input type="checkbox" id="goodreads-skip-read">
+          <span>Leave out books I&rsquo;ve already finished</span>
+        </label>
+        <label class="file-btn">
+          <input type="file" id="goodreads-input" accept=".csv,text/csv">
+          <span>Choose the Goodreads file&hellip;</span>
+        </label>
+      </section>
+
       <h3>Manual copy</h3>
       <div class="stack">
         <button type="button" id="export-btn">Export a copy&hellip;</button>

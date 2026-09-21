@@ -62,7 +62,7 @@ npm install
 npm test
 ```
 
-Thirty-four end-to-end checks run in a headless iPhone-sized browser: adding
+Forty end-to-end checks run in a headless iPhone-sized browser: adding
 by ISBN, the check-digit guard, duplicates, title search, both ways of
 reordering, order surviving a reload, shelf moves, the cover fallback chain,
 the offline and throttled error messages, export/restore, sync in both
@@ -129,6 +129,23 @@ sync (above) to be covered for that, or:
 **Backup → Export a copy** now and then. On iPhone that opens the share sheet,
 so you can drop the JSON file into Files or iCloud Drive. *Restore from a file*
 reads it back and skips anything already on the list.
+
+## Bringing a Goodreads library across
+
+Goodreads closed its public API in 2020, so nothing can ask it for your
+shelves — but it will hand *you* the lot as a file, and the app reads that.
+
+On goodreads.com (easier on a computer than in their app): **My Books** →
+**Import and export** in the left sidebar → **Export Library**. Then in the
+app: **Backup → From Goodreads → Choose the Goodreads file**.
+
+Shelves map straight across — *to-read*, *currently-reading* and *read* become
+this app's three — along with star ratings, reviews as the note on each book,
+and the date you finished. Covers are not in the export, so they are fetched
+afterwards, one at a time with a pause: a library of several hundred books
+should not arrive at Open Library as several hundred simultaneous requests.
+Custom shelves are ignored, importing twice adds nothing twice, and there is a
+tickbox for leaving finished books behind.
 
 ## Sync (optional)
 

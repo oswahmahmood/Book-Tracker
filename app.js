@@ -703,9 +703,11 @@
   const dialogBody = document.getElementById('dialog-body');
   const dialogTitle = document.getElementById('dialog-title');
 
-  // Notes save as they are typed; the row behind the sheet shows them, so it
-  // needs redrawing once the sheet is out of the way.
-  dialog.addEventListener('close', () => render());
+  /* Nothing is redrawn when the sheet closes: each control in it already
+     updates what it changed — notes write straight to their own row, shelf
+     changes and removal redraw the list themselves. Rebuilding every row on
+     close replaced elements that nothing had touched, which is churn, and
+     briefly leaves the list holding nodes that have just been thrown away. */
 
   function openDetail(id) {
     const book = byId(id);
@@ -832,6 +834,163 @@
     const span = document.createElement('span');
     span.textContent = text;
     return span;
+  }
+
+  /* ------------------------------------------------------------- goodreads */
+
+  /* Goodreads closed its API in 2020, so the export file is the only way in.
+     Quoted fields hold commas and whole paragraphs of review text, including
+     line breaks, so this has to be a real parser rather than a split on ",". */
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let quoted = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (quoted) {
+        if (c !== '"') { field += c; continue; }
+        if (text[i + 1] === '"') { field += '"'; i++; continue; }  // "" is one quote
+        quoted = false;
+      } else if (c === '"') {
+        quoted = true;
+      } else if (c === ',') {
+        row.push(field);
+        field = '';
+      } else if (c === '\n') {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+      } else if (c !== '\r') {
+        field += c;
+      }
+    }
+    if (field !== '' || row.length) {
+      row.push(field);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // Goodreads writes ISBNs as ="9780571364886" so spreadsheets keep the zeroes.
+  const csvIsbn = (value) => (value || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+
+  function plainText(html) {
+    return (html || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim();
+  }
+
+  const GOODREADS_SHELVES = {
+    'to-read': 'toread',
+    'currently-reading': 'reading',
+    read: 'read',
+  };
+
+  function fromGoodreadsRow(get) {
+    const title = (get('Title') || '').trim();
+    if (!title) return null;
+
+    const status = GOODREADS_SHELVES[(get('Exclusive Shelf') || '').trim()];
+    if (!status) return null;  // a custom shelf this app has no place for
+
+    const authors = [get('Author'), ...(get('Additional Authors') || '').split(',')]
+      .map((a) => (a || '').trim())
+      .filter(Boolean);
+
+    const isbn = csvIsbn(get('ISBN13')) || csvIsbn(get('ISBN'));
+    const rating = Number(get('My Rating')) || 0;
+    const pages = Number(get('Number of Pages')) || null;
+    const year = (get('Year Published') || get('Original Publication Year') || '').trim();
+    const read = (get('Date Read') || '').trim().replace(/\//g, '-');
+
+    return {
+      id: `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+      isbn: isValidIsbn(isbn) ? isbn : '',
+      title,
+      subtitle: '',
+      authors,
+      publisher: (get('Publisher') || '').trim(),
+      year: (year.match(/\d{4}/) || [''])[0],
+      pages,
+      cover: '',
+      coverChecked: false,   // fetched gradually once it is on the list
+      info: '',
+      source: 'Goodreads',
+      status,
+      notes: plainText(get('My Review')),
+      rating,
+      addedAt: (get('Date Added') || '').trim().replace(/\//g, '-'),
+      finishedAt: status === 'read' ? read : '',
+    };
+  }
+
+  /* Identity for "is this already here": any of ISBN, id, or title and author.
+     Goodreads rows carry no id of ours, so title and author does the work. */
+  function identities(book) {
+    return [
+      book.isbn ? `isbn:${book.isbn}` : '',
+      book.id ? `id:${book.id}` : '',
+      `name:${(book.title || '').toLowerCase().trim()}|${((book.authors || [])[0] || '').toLowerCase().trim()}`,
+    ].filter(Boolean);
+  }
+
+  function importGoodreads(text, { skipFinished = false } = {}) {
+    const rows = parseCsv(text);
+    const headers = rows.shift() || [];
+    if (!headers.includes('Title') || !headers.includes('Exclusive Shelf')) {
+      throw new Error('That does not look like a Goodreads export.');
+    }
+
+    const seen = new Set(books.flatMap(identities));
+    const counts = { toread: 0, reading: 0, read: 0 };
+    let added = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (!row.some((cell) => cell.trim())) continue;
+      const get = (name) => row[headers.indexOf(name)];
+      const book = fromGoodreadsRow(get);
+      if (!book) continue;
+      if (skipFinished && book.status === 'read') continue;
+
+      const keys = identities(book);
+      if (keys.some((k) => seen.has(k))) { skipped++; continue; }
+      keys.forEach((k) => seen.add(k));
+      books.push(book);
+      counts[book.status]++;
+      added++;
+    }
+
+    if (added) save();
+    return { added, skipped, counts };
+  }
+
+  /* Covers are looked up one at a time with a pause between: a library of
+     several hundred books arriving at once should not land on Open Library as
+     several hundred simultaneous requests. */
+  async function resolveCoversGradually(limit = 25) {
+    const pending = books.filter((b) => !b.coverChecked && b.isbn).slice(0, limit);
+    for (const book of pending) {
+      if (!byId(book.id)) continue;
+      await withCover(book).then((resolved) => {
+        if (!byId(book.id)) return;
+        const changed = resolved.cover !== book.cover;
+        book.cover = resolved.cover;
+        book.coverChecked = resolved.checked;
+        write();
+        if (changed) render();
+      });
+      await wait(200);
+    }
   }
 
   /* ------------------------------------------------------------------ sync */
@@ -1074,6 +1233,41 @@
     setStatus(backupStatus, `Saved ${file.name}.`);
   });
 
+  const goodreadsState = document.getElementById('goodreads-state');
+
+  document.getElementById('goodreads-input').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setStatus(goodreadsState, `Reading ${file.name}\u2026`);
+    try {
+      const skipFinished = document.getElementById('goodreads-skip-read').checked;
+      const { added, skipped, counts } = importGoodreads(await file.text(), { skipFinished });
+      view = 'unfinished';
+      syncShelfButtons();
+      render();
+
+      if (!added) {
+        setStatus(goodreadsState, skipped
+          ? `Nothing new — all ${skipped} of those are already on your list.`
+          : 'No books found in that file.', !skipped);
+      } else {
+        const parts = [
+          counts.toread ? `${counts.toread} to read` : '',
+          counts.reading ? `${counts.reading} on the go` : '',
+          counts.read ? `${counts.read} already read` : '',
+        ].filter(Boolean).join(', ');
+        setStatus(goodreadsState,
+          `Added ${added} book${added === 1 ? '' : 's'} (${parts})`
+          + `${skipped ? `, skipping ${skipped} already here` : ''}. Covers are arriving now.`);
+        resolveCoversGradually(40);
+      }
+    } catch (err) {
+      setStatus(goodreadsState, err.message || 'Could not read that file.', true);
+    } finally {
+      event.target.value = '';
+    }
+  });
+
   document.getElementById('import-input').addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1081,15 +1275,6 @@
       const data = JSON.parse(await file.text());
       const incoming = (data.books || []).filter(isBook);
       if (!incoming.length) throw new Error('empty');
-      /* Books added by title search have no ISBN, so matching on ISBN alone
-         let them back in as duplicates — and matching on id alone missed the
-         same book saved twice. Any of the three matching is enough. */
-      const identities = (b) => [
-        b.isbn ? `isbn:${b.isbn}` : '',
-        b.id ? `id:${b.id}` : '',
-        `name:${(b.title || '').toLowerCase().trim()}|${((b.authors || [])[0] || '').toLowerCase().trim()}`,
-      ].filter(Boolean);
-
       const seen = new Set(books.flatMap(identities));
       let added = 0;
       for (const b of incoming) {
@@ -1125,11 +1310,8 @@
   window.addEventListener('hashchange', adoptLinkFromHash);
   if (!adoptLinkFromHash()) pull();
 
-  /* Books added while offline have no cover art yet — try again now, a few at
-     a time so a long list doesn't fire off dozens of requests at once. */
-  if (navigator.onLine) {
-    books.filter((b) => !b.coverChecked && b.isbn).slice(0, 5).forEach(attachCover);
-  }
+  // Books added while offline, or imported from Goodreads, have no cover yet.
+  if (navigator.onLine) resolveCoversGradually();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => {
