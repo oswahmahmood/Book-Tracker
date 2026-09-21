@@ -62,7 +62,7 @@ npm install
 npm test
 ```
 
-Forty end-to-end checks run in a headless iPhone-sized browser: adding
+Forty-one end-to-end checks run in a headless iPhone-sized browser: adding
 by ISBN, the check-digit guard, duplicates, title search, both ways of
 reordering, order surviving a reload, shelf moves, the cover fallback chain,
 the offline and throttled error messages, export/restore, sync in both

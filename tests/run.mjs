@@ -70,6 +70,17 @@ async function check(name, fn) {
 
 const titles = (page) => page.locator('.book .title').allTextContents();
 
+/* A drag has to start and finish somewhere the phone can actually see: the
+   list is taller than the screen once it carries headings, and a point below
+   the fold belongs to nothing at all. */
+async function dragPoints(page) {
+  const last = page.locator('.book').last();
+  await last.scrollIntoViewIfNeeded();
+  const grip = await last.locator('.grip').boundingBox();
+  const first = await page.locator('.book').first().boundingBox();
+  return { grip, first };
+}
+
 const server = await serve(PORT);
 const browser = await chromium.launch();
 
@@ -157,8 +168,7 @@ await check('reorders with the arrow buttons', async () => {
 await check('reorders by dragging the handle, and the order survives a reload', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 3);
-  const grip = await page.locator('.book').last().locator('.grip').boundingBox();
-  const first = await page.locator('.book').first().boundingBox();
+  const { grip, first } = await dragPoints(page);
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(first.x + first.width / 2, first.y + 4, { steps: 12 });
@@ -277,9 +287,9 @@ await check('what you are reading leads the list, and looks different', async ()
 
   assert.deepEqual(await titles(page), ['Two', 'One', 'Three'], 'it should move to the top');
   assert.equal(await page.locator('.book').first().getAttribute('class'), 'book is-reading');
-  assert.equal(await page.locator('.book').first().locator('.row-badge').textContent(), 'Reading now');
-  assert.equal(await page.locator('.book').nth(1).locator('.row-badge').textContent(), 'Next up',
-    'the first unstarted book is what comes next');
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(),
+    ['Reading now', 'Next up', 'Then — 1 more'],
+    'the list says which group is which rather than leaving it to colour');
 
   // the highlight is a different colour from the rest of the app
   const [readingBorder, plainBorder] = await page.evaluate(() => {
@@ -298,6 +308,26 @@ await check('what you are reading leads the list, and looks different', async ()
   await ctx.close();
 });
 
+await check('the headings follow what is actually in the list', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 1);
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(), ['Next up'],
+    'one book is simply the next one');
+
+  await seed(page, 3);
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(), ['Next up', 'Then — 2 more']);
+
+  // dragging still works with headings sharing the list
+  const { grip, first } = await dragPoints(page);
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(first.x + first.width / 2, first.y + 4, { steps: 12 });
+  await page.mouse.up();
+  assert.deepEqual(await titles(page), ['Three', 'One', 'Two'], 'a book dragged to the top is next up');
+  assert.deepEqual(await page.locator('.group-head h2').allTextContents(), ['Next up', 'Then — 2 more']);
+  await ctx.close();
+});
+
 await check('finished books move to their own tab', async () => {
   const { ctx, page } = await newPage();
   await seed(page, 2);
@@ -309,8 +339,7 @@ await check('finished books move to their own tab', async () => {
   assert.equal(await page.textContent('[data-count="read"]'), '1');
   await page.click('.shelf[data-shelf="read"]');
   assert.deepEqual(await titles(page), ['One']);
-  assert.equal(await page.locator('.book').first().locator('.row-badge').isHidden(), true,
-    'no badges on the finished shelf');
+  assert.equal(await page.locator('.group-head').count(), 0, 'no groupings on the finished shelf');
   await ctx.close();
 });
 
@@ -699,7 +728,7 @@ await check('imports a Goodreads export, shelves and reviews intact', async () =
 
   // currently-reading leads, then to-read; the finished one is on the other tab
   assert.deepEqual(await titles(page), ['Piranesi', 'The Good Immigrant']);
-  assert.equal(await page.locator('.book').first().locator('.row-badge').textContent(), 'Reading now');
+  assert.equal(await page.locator('.group-head h2').first().textContent(), 'Reading now');
   await page.click('.shelf[data-shelf="read"]');
   assert.deepEqual(await titles(page), ['Wolf Hall, and after'], 'a comma inside a quoted title survives');
 

@@ -141,32 +141,51 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 }
 .book.dragging { opacity: .9; box-shadow: 0 14px 30px rgba(0, 0, 0, .25); transform: scale(1.015); border-color: var(--accent); }
 
-/* What you are reading, and what you will read next, are the two things worth
-   spotting at a glance. Green for on the go, pink for next. */
-.row-badge {
-  display: none;
-  font-size: .62rem;
-  letter-spacing: .09em;
+/* "Which am I reading, what's next" is answered by the headings; the cards
+   only have to belong to one obviously. A tint that fades to white reads as
+   decoration, so the group marker is a solid stripe down the edge instead. */
+.group-head {
+  list-style: none;
+  margin: 18px 2px 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-head:first-child { margin-top: 4px; }
+.group-head h2 {
+  margin: 0;
+  font-size: .72rem;
+  letter-spacing: .12em;
   text-transform: uppercase;
   font-weight: 700;
-  border-radius: 999px;
-  padding: 3px 9px;
-  margin-bottom: 5px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--muted);
+  white-space: nowrap;
 }
-.book.is-next .row-badge,
-.book.is-reading .row-badge { display: inline-block; }
-
-.book.is-next { border-color: var(--accent); }
+.group-head::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
+}
+.group-head.is-reading h2 { color: var(--reading); }
+.group-head.is-reading::after { background: var(--reading-soft); }
+.group-head.is-next h2 { color: var(--accent); }
+.group-head.is-next::after { background: var(--accent-soft); }
 
 .book.is-reading {
-  border-color: var(--reading);
-  background: linear-gradient(var(--reading-soft), var(--card) 70%);
+  border-color: var(--reading-soft);
+  border-left: 5px solid var(--reading);
+  background: var(--reading-soft);
 }
-.book.is-reading .row-badge { color: var(--reading); background: #fff; }
-.book.is-reading .cover-wrap { box-shadow: 0 2px 10px rgba(12, 125, 109, .3); }
-.book.is-reading .note { border-left-color: var(--reading); }
+.book.is-reading .cover-wrap { box-shadow: 0 2px 10px rgba(12, 125, 109, .28); }
+.book.is-reading .note { border-left-color: var(--reading); background: #fff; }
+.book.is-reading .author, .book.is-reading .sub { color: #4a6b65; }
+
+/* The one you will pick up next gets the accent, and a little more presence. */
+.group-head.is-next + .book {
+  border-color: var(--accent);
+  border-left: 5px solid var(--accent);
+}
 
 .grip {
   background: transparent;

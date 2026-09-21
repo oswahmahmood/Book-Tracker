@@ -381,9 +381,28 @@
     const rows = visible();
     listEl.textContent = '';
 
-    // "Next up" marks the first book you are not already reading.
-    const nextUp = view === 'unfinished' ? rows.find((b) => b.status === 'toread') : null;
-    for (const book of rows) listEl.append(renderBook(book, { isNext: book === nextUp }));
+    /* Headings rather than badges: "which am I reading, what's next" is a
+       question about groups, and a label on a group says it once and plainly
+       instead of decorating each row and hoping the colour carries it. */
+    if (view === 'unfinished') {
+      const reading = rows.filter((b) => b.status === 'reading');
+      const queue = rows.filter((b) => b.status === 'toread');
+
+      if (reading.length) {
+        listEl.append(groupHeading(reading.length === 1 ? 'Reading now' : 'Reading now', 'reading'));
+        for (const book of reading) listEl.append(renderBook(book));
+      }
+      if (queue.length) {
+        listEl.append(groupHeading('Next up', 'next'));
+        listEl.append(renderBook(queue[0]));
+        if (queue.length > 1) {
+          listEl.append(groupHeading(`Then — ${queue.length - 1} more`, 'later'));
+          for (const book of queue.slice(1)) listEl.append(renderBook(book));
+        }
+      }
+    } else {
+      for (const book of rows) listEl.append(renderBook(book));
+    }
 
     listEl.classList.toggle('is-queue', view === 'unfinished');
     emptyEl.hidden = rows.length > 0;
@@ -396,18 +415,19 @@
     }
   }
 
-  function renderBook(book, { isNext = false } = {}) {
+  function groupHeading(text, kind) {
+    const li = document.createElement('li');
+    li.className = `group-head is-${kind}`;
+    const h = document.createElement('h2');
+    h.textContent = text;
+    li.append(h);
+    return li;
+  }
+
+  function renderBook(book) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.id = book.id;
-
-    const badge = node.querySelector('.row-badge');
-    if (book.status === 'reading') {
-      node.classList.add('is-reading');
-      badge.textContent = 'Reading now';
-    } else if (isNext) {
-      node.classList.add('is-next');
-      badge.textContent = 'Next up';
-    }
+    if (book.status === 'reading') node.classList.add('is-reading');
 
     const img = node.querySelector('.cover');
     const fallback = node.querySelector('.cover-fallback');
@@ -529,7 +549,7 @@
 
   function rowUnder(x, y) {
     for (const el of document.elementsFromPoint(x, y)) {
-      if (el.parentElement === listEl) return el;
+      if (el.parentElement === listEl && el.classList.contains('book')) return el;
     }
     return null;
   }
@@ -541,7 +561,7 @@
     window.removeEventListener('pointermove', onDragMove);
     window.removeEventListener('pointerup', endDrag);
     window.removeEventListener('pointercancel', endDrag);
-    applyOrder([...listEl.children].map((el) => el.dataset.id));
+    applyOrder([...listEl.children].filter((el) => el.dataset.id).map((el) => el.dataset.id));
     render();
   }
 
