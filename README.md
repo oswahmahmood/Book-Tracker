@@ -62,7 +62,7 @@ npm install
 npm test
 ```
 
-Forty-eight end-to-end checks run in a headless iPhone-sized browser: adding
+Fifty-one end-to-end checks run in a headless iPhone-sized browser: adding
 by ISBN, the check-digit guard, duplicates, title search, both ways of
 reordering, order surviving a reload, shelf moves, the cover fallback chain,
 the offline and throttled error messages, export/restore, sync in both
@@ -139,8 +139,9 @@ unread at the top.
 
 A book added while the Rereads tab is open joins the rotation as a book you
 have read, and the tab does not change underneath you; the same goes for the
-Read tab. Set *When you last finished it* to place it properly in the
-rotation — until then it reads as never logged, and sits at the top.
+Read tab. Set *When you last finished it* to place it properly in the rotation — until
+then it reads as never logged and leads the tab, but it stays out of the
+reading list, since nothing yet says a cycle has elapsed.
 
 A book in the rotation does not clutter the reading list until it comes round.
 When it does, it appears there under **Due again**, directly after Next up, so
@@ -181,8 +182,19 @@ off. It is off until you enter an address.
 
 ### Setting it up, once
 
-All of this is done in a browser — no terminal, no payment card. The free tier
-is far larger than one reading list will ever need.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/oswahmahmood/Book-Tracker)
+
+That button reads `wrangler.jsonc`, which names the Worker and asks for the
+storage it needs, so the whole thing is: sign in to Cloudflare (free, no card),
+confirm, wait a minute. Copy the address it gives you into **Backup → Sync →
+Sync address**, press **Turn sync on**, and you are done.
+
+If the deploy asks for a KV namespace rather than making one, create it as
+`LISTS` and bind it under the same name; the manual route below does exactly
+that. All of it is browser-only — the free tier is far larger than one reading
+list will ever need.
+
+**The manual route**, if the button misbehaves:
 
 1. Make a free account at [cloudflare.com](https://dash.cloudflare.com/sign-up).
 2. In the dashboard, go to **Storage & Databases → KV** and create a namespace

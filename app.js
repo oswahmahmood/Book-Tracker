@@ -23,7 +23,15 @@
   };
 
   const A_YEAR = 365.25 * 24 * 60 * 60 * 1000;
-  const today = () => new Date().toISOString().slice(0, 10);
+  /* The day where the reader is, not in UTC: at half past midnight in summer
+     the UTC date is still yesterday, which would stamp a finish on the wrong
+     day and make the date picker refuse the book just put down. */
+  function today() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${month}-${day}`;
+  }
   const lastReadAt = (book) => (book.finishedAt ? Date.parse(book.finishedAt) : NaN);
 
   /* Due when the cycle has elapsed since it was last finished — and a book put
@@ -32,12 +40,18 @@
   function dueAgain(book, now = Date.now()) {
     if (!book.reread) return false;
     const last = lastReadAt(book);
-    return Number.isNaN(last) || now - last >= rereadYears * A_YEAR;
+    return !Number.isNaN(last) && now - last >= rereadYears * A_YEAR;
   }
+
+  /* A book in the rotation with no date has not been forgotten — nothing is
+     known about it yet. It leads the Rereads tab, where that is the point, but
+     it does not claim a place in the reading list on a cycle nobody has
+     started. */
+  const undatedRotation = (book) => book.reread && Number.isNaN(lastReadAt(book));
 
   function describeWhen(book) {
     const last = lastReadAt(book);
-    if (Number.isNaN(last)) return 'Not logged as read yet — due now';
+    if (Number.isNaN(last)) return 'Not logged as read yet — say when you last finished it';
     const when = new Date(last).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const months = Math.round((rereadYears * A_YEAR - (Date.now() - last)) / (A_YEAR / 12));
     if (months <= 0) return `Last read ${when} · due now`;
@@ -459,6 +473,7 @@
     }
 
     listEl.classList.toggle('is-queue', view === 'unfinished');
+    listEl.classList.toggle('is-fixed-order', view === 'rereads');
     document.getElementById('reread-settings').hidden = view !== 'rereads';
     emptyEl.hidden = rows.length > 0;
     emptyEl.textContent = EMPTY_COPY[view];
@@ -540,7 +555,8 @@
   /* Rewrite the global array so the books on this shelf take the order given,
      leaving books on other shelves where they are. */
   function applyOrder(ids, forStatus) {
-    const wanted = forStatus ? [forStatus] : VIEWS[view];
+    // The rereads tab orders itself by date, so there is nothing here to apply.
+    const wanted = forStatus ? [forStatus] : (VIEWS[view] || []);
     let moved = false;
 
     for (const status of wanted) {
@@ -658,9 +674,11 @@
        rereads tab and watching the book land somewhere else, on a tab you did
        not ask for, is the app arguing with you. */
     const landing = {
-      rereads: { status: 'read', reread: true, where: 'to your rereads' },
-      read: { status: 'read', reread: false, where: 'to the books you have read' },
-      unfinished: { status: 'toread', reread: false, where: '' },
+      // No date for a reread: it was read at some point, and guessing today
+      // would hide it for the whole cycle. The book's page asks when.
+      rereads: { status: 'read', reread: true, finished: '', where: 'to your rereads' },
+      read: { status: 'read', reread: false, finished: today(), where: 'to the books you have read' },
+      unfinished: { status: 'toread', reread: false, finished: '', where: '' },
     }[view];
 
     const book = {
@@ -672,7 +690,7 @@
       notes: '',
       rating: 0,
       addedAt: new Date().toISOString(),
-      finishedAt: '',
+      finishedAt: landing.finished,
     };
     books.push(book);
     save();

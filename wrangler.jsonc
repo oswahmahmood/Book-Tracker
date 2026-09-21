@@ -1,0 +1,11 @@
+{
+  // Deploying this is what makes the list save itself. See the README:
+  // Cloudflare's deploy button reads this file, so the Worker and its storage
+  // are set up without a terminal or a wrangler install.
+  "name": "reading-list-sync",
+  "main": "worker/sync-worker.js",
+  "compatibility_date": "2025-09-01",
+  "kv_namespaces": [
+    { "binding": "LISTS" }
+  ]
+}

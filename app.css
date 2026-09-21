@@ -18,6 +18,11 @@
 }
 * { box-sizing: border-box; }
 
+/* Author rules beat the browser's own [hidden] rule, so a hidden flex or grid
+   container stays on screen. Said once here rather than per element, which is
+   how the reread date came to show on books that had nothing to do with it. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   color: var(--ink);
@@ -239,6 +244,9 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .when[hidden] { display: none; }
 .book.is-due .when { color: var(--reading); font-weight: 600; }
 .book.is-due { border-left: 5px solid var(--reading-soft); }
+
+.is-fixed-order .grip, .is-fixed-order .up, .is-fixed-order .down { display: none; }
+.is-fixed-order .book { grid-template-columns: 0 58px 1fr auto; gap: 8px; }
 
 .reread-settings {
   margin: 16px 2px 4px;

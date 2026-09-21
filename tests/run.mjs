@@ -360,7 +360,51 @@ await check('a book added from a tab lands on that tab, and stays there', async 
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
   assert.equal(stored.reread, true, 'it joins the rotation');
   assert.equal(stored.status, 'read', 'a book you mean to reread is one you have read');
-  assert.equal(await page.textContent('[data-count="unfinished"]'), '0', 'and not onto the reading list');
+  assert.equal(await page.textContent('[data-count="unfinished"]'), '0');
+  await page.click('.shelf[data-shelf="unfinished"]');
+  assert.equal(await page.locator('.book').count(), 0,
+    'and it does not appear on the reading list either — nothing says its cycle has elapsed');
+  await ctx.close();
+});
+
+await check('the hidden bits of the book sheet stay hidden', async () => {
+  const { ctx, page } = await newPage();
+  await seed(page, 1);
+  await page.locator('.book .title').click();
+
+  // the reread date belongs to books in the rotation, not to everything
+  assert.equal(await page.locator('#book-dialog input[type="date"]').isVisible(), false,
+    'a to-read book should not be asked when it was last finished');
+
+  await page.check('#book-dialog input[type="checkbox"]');
+  assert.equal(await page.locator('#book-dialog input[type="date"]').isVisible(), true,
+    'and should once it joins the rotation');
+  await page.click('#book-dialog button[type="submit"]');
+  assert.equal(await page.textContent('[data-count="unfinished"]'), '1',
+    'joining the rotation is not the same as having been read');
+  await ctx.close();
+});
+
+await check('the arrows are gone where the order is not yours to set', async () => {
+  const { ctx, page } = await newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await seedRereads(page, [{ title: 'Read years ago', yearsAgo: 4 }, { title: 'Read last year', yearsAgo: 1 }]);
+  await page.click('.shelf[data-shelf="rereads"]');
+  assert.equal(await page.locator('.book').first().locator('.up').isVisible(), false,
+    'the rereads tab sorts itself by date');
+  assert.equal(await page.locator('.book').first().locator('.grip').isVisible(), false);
+  assert.deepEqual(errors, [], 'and nothing throws while it is open');
+  await ctx.close();
+});
+
+await check('a book added as read carries the date it was added', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('.shelf[data-shelf="read"]');
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.ok(stored.finishedAt, 'every other route onto the read shelf stamps a date; so does this one');
   await ctx.close();
 });
 
