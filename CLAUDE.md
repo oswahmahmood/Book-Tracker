@@ -12,7 +12,7 @@ deploys to GitHub Pages on every push — so a push reaches a real phone within 
 minute or two. Pull requests are for when a change is worth looking at first,
 not the default; the owner asked for the merge button to go away.
 
-**`npm test` must pass before every push.** 52 end-to-end checks in a headless
+**`npm test` must pass before every push.** 53 end-to-end checks in a headless
 iPhone-sized browser. There is no CI: this suite is the only thing standing
 between a mistake and the owner's phone. A run takes a few minutes, which is
 still cheaper than shipping a blank screen.
@@ -79,3 +79,9 @@ free, forever, by copying files to a static host.
   reported as shipped had never left GitHub. Deploys queue; a green run is the
   only evidence that something is live, and this environment cannot load the
   site to check.
+- Nothing may be wider than the screen. A flex row of `nowrap` buttons cannot
+  shrink below its text, so one tab hung off the edge — and on iOS a page wider
+  than the screen will not pinch back to fit and reads taps near the edge as
+  sideways pans, so the tabs stopped working. Assert `scrollWidth <= clientWidth`
+  at 320px, and remember the real fonts never load here: stretch the type to
+  stand in for them.

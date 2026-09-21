@@ -84,8 +84,11 @@ async function dragPoints(page) {
 const server = await serve(PORT);
 const browser = await chromium.launch();
 
-async function newPage({ serviceWorkers = 'block', routes = {} } = {}) {
-  const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers });
+async function newPage({ serviceWorkers = 'block', routes = {}, viewport } = {}) {
+  const ctx = await browser.newContext({
+    ...devices['iPhone 13'], serviceWorkers,
+    ...(viewport ? { viewport } : {}),
+  });
   await ctx.route(/openlibrary\.org\/api\/books/, (r) => r.fulfill(json(routes.ol ?? olRecord(true))));
   await ctx.route(/openlibrary\.org\/search\.json/, (r) => r.fulfill(json(routes.search ?? searchCatalogue(r.request().url()))));
   await ctx.route(/covers\.openlibrary\.org\//, (r) => (routes.covers === false ? r.abort() : r.fulfill(image())));
@@ -1081,6 +1084,44 @@ await check('works with no network once installed', async () => {
     return !img.hidden && img.complete && img.naturalWidth > 1;
   });
   assert.equal(coverShown, true, 'cached cover should still render offline');
+  await ctx.close();
+});
+
+/* The tab row used to be three nowrap buttons that could not shrink, so on a
+   narrow phone the Read tab hung past the right edge. That makes the whole page
+   wider than the screen, and iOS then pins the minimum zoom to the wider content
+   and reads taps near the edge as sideways pans — the tabs stop responding and a
+   pinch cannot be undone. Google Fonts cannot be reached from here, so the real
+   Karla is never measured: the stretched type stands in for it. */
+await check('the tabs stay on the screen on a narrow phone', async () => {
+  const { ctx, page } = await newPage({ viewport: { width: 320, height: 700 } });
+  await seed(page, 4);
+  await page.addStyleTag({ content: 'h1, .shelf, .book .title { letter-spacing: .06em !important; }' });
+  await page.waitForTimeout(50);
+
+  const width = await page.evaluate(() => ({
+    screen: document.documentElement.clientWidth,
+    page: document.documentElement.scrollWidth,
+  }));
+  assert.ok(
+    width.page <= width.screen,
+    `the page is ${width.page}px wide on a ${width.screen}px screen, so it scrolls sideways`,
+  );
+
+  for (const shelf of ['unfinished', 'rereads', 'read']) {
+    const box = await page.locator(`.shelf[data-shelf="${shelf}"]`).boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= width.screen + 0.5,
+      `the ${shelf} tab sits at ${Math.round(box.x)}-${Math.round(box.x + box.width)}px, off a ${width.screen}px screen`);
+    assert.ok(box.height >= 40, `the ${shelf} tab is only ${Math.round(box.height)}px tall to tap`);
+  }
+
+  // and they still switch when tapped at that width
+  await page.click('.shelf[data-shelf="rereads"]');
+  assert.ok(await page.locator('.shelf[data-shelf="rereads"]').evaluate((el) => el.classList.contains('is-active')),
+    'tapping Rereads did not select it');
+  await page.click('.shelf[data-shelf="read"]');
+  assert.ok(await page.locator('.shelf[data-shelf="read"]').evaluate((el) => el.classList.contains('is-active')),
+    'tapping Read did not select it');
   await ctx.close();
 });
 

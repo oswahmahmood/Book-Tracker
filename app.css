@@ -105,9 +105,15 @@ input:focus-visible, button:focus-visible, textarea:focus-visible, select:focus-
 .muted { color: var(--muted); }
 .hint { font-size: .8rem; color: var(--muted); margin: 16px 4px 10px; }
 
-.shelves { display: flex; gap: 8px; margin-top: 20px; }
+/* These wrap rather than overflow. Three nowrap buttons on a flex: 1 1 0 row
+   cannot shrink below their own text, so on a narrow phone the Read tab hung
+   off the right edge — which makes the whole page wider than the screen, and
+   iOS then refuses to pinch back to fit and reads taps on the tabs as sideways
+   pans. A second line is worth more than a tab you cannot press. */
+.shelves { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .shelf {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-width: 0;
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--line);
