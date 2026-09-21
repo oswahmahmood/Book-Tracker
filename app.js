@@ -649,14 +649,26 @@
       || (b.title.toLowerCase() === info.title.toLowerCase()
           && (b.authors || []).join() === (info.authors || []).join()));
     if (dupe) {
-      setStatus(addStatus, `Already on your ${SHELF_LABELS[dupe.status].toLowerCase()} shelf: ${dupe.title}`);
+      setStatus(addStatus, dupe.reread
+        ? `Already in your rereads: ${dupe.title}`
+        : `Already on your ${SHELF_LABELS[dupe.status].toLowerCase()} shelf: ${dupe.title}`);
       return null;
     }
+    /* A book is added to the list you are looking at. Searching from the
+       rereads tab and watching the book land somewhere else, on a tab you did
+       not ask for, is the app arguing with you. */
+    const landing = {
+      rereads: { status: 'read', reread: true, where: 'to your rereads' },
+      read: { status: 'read', reread: false, where: 'to the books you have read' },
+      unfinished: { status: 'toread', reread: false, where: '' },
+    }[view];
+
     const book = {
       id: `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
       ...info,
       isbn,
-      status: 'toread',
+      status: landing.status,
+      reread: landing.reread,
       notes: '',
       rating: 0,
       addedAt: new Date().toISOString(),
@@ -664,10 +676,8 @@
     };
     books.push(book);
     save();
-    view = 'unfinished';
-    syncShelfButtons();
     render();
-    setStatus(addStatus, `Added ${book.title}.`);
+    setStatus(addStatus, `Added ${book.title}${landing.where ? ` ${landing.where}` : ''}.`);
     return book;
   }
 
@@ -878,6 +888,25 @@
     const rotationWhen = document.createElement('p');
     rotationWhen.className = 'sub muted';
 
+    const lastReadField = document.createElement('label');
+    lastReadField.className = 'field';
+    lastReadField.append(labelSpan('When you last finished it'));
+    const lastReadInput = document.createElement('input');
+    lastReadInput.type = 'date';
+    lastReadInput.value = book.finishedAt || '';
+    lastReadInput.max = today();
+    lastReadInput.addEventListener('change', () => {
+      book.finishedAt = lastReadInput.value;
+      if (book.finishedAt && book.status !== 'read') {
+        book.status = 'read';
+        select.value = 'read';
+      }
+      save();
+      showRotation();
+      render();
+    });
+    lastReadField.append(lastReadInput);
+
     const finishedAgain = document.createElement('button');
     finishedAgain.type = 'button';
     finishedAgain.className = 'ghost';
@@ -887,6 +916,8 @@
       rotationWhen.textContent = book.reread ? describeWhen(book) : '';
       rotationWhen.hidden = !book.reread;
       finishedAgain.hidden = !book.reread;
+      lastReadField.hidden = !book.reread;
+      lastReadInput.value = book.finishedAt || '';
     };
 
     rotationBox.addEventListener('change', () => {
@@ -906,7 +937,7 @@
     });
 
     showRotation();
-    rotation.append(labelSpan('Rereading'), rotationLabel, rotationWhen, finishedAgain);
+    rotation.append(labelSpan('Rereading'), rotationLabel, rotationWhen, lastReadField, finishedAgain);
 
     const links = document.createElement('div');
     links.className = 'field';

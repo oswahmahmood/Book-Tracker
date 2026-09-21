@@ -62,7 +62,7 @@ npm install
 npm test
 ```
 
-Forty-five end-to-end checks run in a headless iPhone-sized browser: adding
+Forty-eight end-to-end checks run in a headless iPhone-sized browser: adding
 by ISBN, the check-digit guard, duplicates, title search, both ways of
 reordering, order surviving a reload, shelf moves, the cover fallback chain,
 the offline and throttled error messages, export/restore, sync in both
@@ -136,6 +136,11 @@ Any book can be put in a rotation: open it and tick *Read this again every so
 often*. One cycle covers everything — two years by default, changed at the top
 of the **Rereads** tab, which lists the rotation with whatever has gone longest
 unread at the top.
+
+A book added while the Rereads tab is open joins the rotation as a book you
+have read, and the tab does not change underneath you; the same goes for the
+Read tab. Set *When you last finished it* to place it properly in the
+rotation — until then it reads as never logged, and sits at the top.
 
 A book in the rotation does not clutter the reading list until it comes round.
 When it does, it appears there under **Due again**, directly after Next up, so

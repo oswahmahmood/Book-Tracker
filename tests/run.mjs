@@ -346,6 +346,54 @@ async function seedRereads(page, entries) {
   await page.reload();
 }
 
+await check('a book added from a tab lands on that tab, and stays there', async () => {
+  const { ctx, page } = await newPage();
+
+  await page.click('.shelf[data-shelf="rereads"]');
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  assert.equal(await page.locator('.shelf.is-active').getAttribute('data-shelf'), 'rereads',
+    'adding from the rereads tab should not move you somewhere else');
+  assert.match(await page.textContent('#add-status'), /to your rereads/);
+  assert.deepEqual(await titles(page), ['Piranesi']);
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.equal(stored.reread, true, 'it joins the rotation');
+  assert.equal(stored.status, 'read', 'a book you mean to reread is one you have read');
+  assert.equal(await page.textContent('[data-count="unfinished"]'), '0', 'and not onto the reading list');
+  await ctx.close();
+});
+
+await check('the read tab takes books straight to finished', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('.shelf[data-shelf="read"]');
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  assert.equal(await page.locator('.shelf.is-active').getAttribute('data-shelf'), 'read');
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.equal(stored.status, 'read');
+  assert.equal(!!stored.reread, false, 'read is not the same as wanting to read it again');
+  await ctx.close();
+});
+
+await check('a reread can be given the date it was really last finished', async () => {
+  const { ctx, page } = await newPage();
+  await page.click('.shelf[data-shelf="rereads"]');
+  await addIsbn(page);
+  await page.waitForSelector('.book');
+  assert.match(await page.locator('.book .when').textContent(), /Not logged as read yet/);
+
+  await page.locator('.book .title').click();
+  await page.fill('#book-dialog input[type="date"]', '2019-04-02');
+  await page.dispatchEvent('#book-dialog input[type="date"]', 'change');
+  await page.click('#book-dialog button[type="submit"]');
+  assert.match(await page.locator('.book .when').textContent(), /Last read April 2019 · due now/);
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('reading-list.v1')).books[0]);
+  assert.equal(stored.finishedAt, '2019-04-02');
+  await ctx.close();
+});
+
 await check('the rereads tab puts the longest unread at the top', async () => {
   const { ctx, page } = await newPage();
   await seedRereads(page, [

@@ -12,7 +12,7 @@ deploys to GitHub Pages on every push — so a push reaches a real phone within 
 minute or two. Pull requests are for when a change is worth looking at first,
 not the default; the owner asked for the merge button to go away.
 
-**`npm test` must pass before every push.** 45 end-to-end checks in a headless
+**`npm test` must pass before every push.** 48 end-to-end checks in a headless
 iPhone-sized browser. There is no CI: this suite is the only thing standing
 between a mistake and the owner's phone. A run takes a few minutes, which is
 still cheaper than shipping a blank screen.
