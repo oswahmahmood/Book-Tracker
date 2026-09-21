@@ -12,9 +12,13 @@ permissions:
   pages: write
   id-token: write
 
+# Deploys queue; they do not cancel each other. With cancel-in-progress, a push
+# made while the previous one was still publishing killed it mid-deploy — the
+# Fig & Moss colours were reported as shipped and never reached the phone.
+# Each push takes its turn, so "it's live" means it is.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:

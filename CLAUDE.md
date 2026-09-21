@@ -74,3 +74,8 @@ free, forever, by copying files to a static host.
 - Redraw what changed, not the whole list. A blanket re-render left tests
   holding elements that had just been replaced — twice — and it was churn
   either way.
+- A push cancels nothing now, but it used to. `cancel-in-progress` in
+  `pages.yml` meant a second push killed the first one's deploy, so a change
+  reported as shipped had never left GitHub. Deploys queue; a green run is the
+  only evidence that something is live, and this environment cannot load the
+  site to check.
